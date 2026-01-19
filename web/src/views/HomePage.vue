@@ -18,6 +18,7 @@ import {
   FilmOutline,
 } from '@vicons/ionicons5'
 import { useHomeStats } from '@/composables/useHomeStats'
+import { useMobileLayout, useResponsiveValue } from '@/composables/useMobileLayout'
 import type { HistoryRecord } from '@/api/types'
 import HomeSkeleton from '@/components/common/HomeSkeleton.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -25,9 +26,15 @@ import AnimatedNumber from '@/components/common/AnimatedNumber.vue'
 import RingChart from '@/components/common/RingChart.vue'
 import BarChart from '@/components/common/BarChart.vue'
 import TmdbSetupBanner from '@/components/common/TmdbSetupBanner.vue'
+import TouchCard from '@/components/common/TouchCard.vue'
 
 const router = useRouter()
 const { loading, totalTasks, successCount, failedCount, recentTasks, weeklyStats } = useHomeStats()
+const { isMobile } = useMobileLayout()
+
+// 响应式图表尺寸
+const ringChartSize = useResponsiveValue({ mobile: 80, tablet: 90, desktop: 100 })
+const barChartHeight = useResponsiveValue({ mobile: 80, tablet: 90, desktop: 100 })
 
 // iOS 风格统计卡片配置
 const statCards = [
@@ -130,12 +137,12 @@ const goToDetail = (record: HistoryRecord) => {
       <NGrid :x-gap="16" :y-gap="16" cols="1 m:2" responsive="screen" style="margin-top: 16px;">
         <NGi>
           <NCard class="chart-card ios-card" title="任务统计" :style="{ '--delay': '0.24s' }">
-            <RingChart :data="ringChartData" :size="100" />
+            <RingChart :data="ringChartData" :size="ringChartSize" />
           </NCard>
         </NGi>
         <NGi>
           <NCard class="chart-card ios-card" title="近7天趋势" :style="{ '--delay': '0.32s' }">
-            <BarChart :data="weeklyStats" :height="100" />
+            <BarChart :data="weeklyStats" :height="barChartHeight" />
           </NCard>
         </NGi>
       </NGrid>
@@ -465,5 +472,132 @@ const goToDetail = (record: HistoryRecord) => {
 
 .task-status {
   flex-shrink: 0;
+}
+
+/* 移动端优化 */
+@media (max-width: 768px) {
+  .home-page {
+    padding: 0;
+  }
+
+  .stat-content {
+    gap: 12px;
+  }
+
+  .stat-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+  }
+
+  .stat-value {
+    font-size: 26px;
+  }
+
+  .stat-label {
+    font-size: 13px;
+  }
+
+  .link-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+  }
+
+  .link-title {
+    font-size: 15px;
+  }
+
+  .link-desc {
+    font-size: 13px;
+  }
+
+  .chart-card {
+    min-height: 140px;
+  }
+
+  .section-title {
+    margin: 20px 0 12px;
+    font-size: 13px;
+  }
+
+  .task-item {
+    padding: 12px 16px;
+    margin: 0 -16px;
+    gap: 12px;
+  }
+
+  .task-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+  }
+
+  .task-name {
+    font-size: 15px;
+  }
+
+  .task-meta {
+    font-size: 12px;
+  }
+
+  .card-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .card-title {
+    font-size: 15px;
+  }
+
+  .view-all {
+    font-size: 14px;
+  }
+
+  .recent-card {
+    margin-top: 16px;
+  }
+
+  /* 减少入场动画延迟 */
+  .ios-card {
+    animation-duration: 0.35s;
+  }
+}
+
+/* 触摸设备优化 */
+@media (hover: none) and (pointer: coarse) {
+  .stat-card:hover,
+  .quick-link:hover {
+    transform: none;
+    box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.06));
+  }
+
+  .stat-card:active,
+  .quick-link:active {
+    transform: scale(0.98);
+    opacity: 0.9;
+  }
+
+  .task-item:hover {
+    background: transparent;
+  }
+
+  .task-item:active {
+    background: var(--color-fill-secondary, rgba(0, 0, 0, 0.04));
+  }
+}
+
+/* 减少动画 */
+@media (prefers-reduced-motion: reduce) {
+  .ios-card {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  .stat-card,
+  .quick-link {
+    transition: none;
+  }
 }
 </style>

@@ -12,6 +12,7 @@ import {
   NIcon,
   NPagination,
   NPopconfirm,
+  NProgress,
   useMessage,
   type DataTableColumns,
   type DataTableRowKey,
@@ -21,6 +22,7 @@ import {
   TrashOutline,
   SearchOutline,
   ListOutline,
+  ChevronForwardOutline,
 } from '@vicons/ionicons5'
 import { manualJobApi } from '@/api/manual-job'
 import type { ManualJob, ManualJobStatus } from '@/api/types'
@@ -28,9 +30,14 @@ import { LinkMode } from '@/api/types'
 import TaskWizard from '@/components/scan/TaskWizard.vue'
 import ProgressCell from '@/components/scan/ProgressCell.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import TouchCard from '@/components/common/TouchCard.vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import PageSkeleton from '@/components/common/PageSkeleton.vue'
+import { useMobileLayout } from '@/composables/useMobileLayout'
 
 const router = useRouter()
 const message = useMessage()
+const { isMobile } = useMobileLayout()
 const loading = ref(false)
 const jobs = ref<ManualJob[]>([])
 const total = ref(0)
@@ -237,6 +244,24 @@ const handleCheckedRowKeysChange = (keys: DataTableRowKey[]) => {
 // 是否有运行中的任务
 const hasRunningJobs = computed(() => jobs.value.some((j) => j.status === 'running' || j.status === 'pending'))
 
+// 状态转换为 StatusBadge 格式
+const getJobStatusBadge = (status: ManualJobStatus): { status: 'success' | 'error' | 'warning' | 'info' | 'pending' | 'default'; text: string } => {
+  const map: Record<ManualJobStatus, { status: 'success' | 'error' | 'warning' | 'info' | 'pending' | 'default'; text: string }> = {
+    pending: { status: 'pending', text: '等待中' },
+    running: { status: 'info', text: '运行中' },
+    success: { status: 'success', text: '成功' },
+    failed: { status: 'error', text: '失败' },
+    cancelled: { status: 'warning', text: '已取消' },
+  }
+  return map[status] || { status: 'default', text: status }
+}
+
+// 计算进度百分比
+const getProgressPercent = (job: ManualJob) => {
+  if (job.total_count === 0) return 0
+  return Math.round(((job.success_count + job.skip_count + job.error_count) / job.total_count) * 100)
+}
+
 onMounted(() => {
   loadJobs()
   // 定时刷新（有运行中任务时）
@@ -300,25 +325,85 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- 表格 -->
-      <NDataTable
-        v-if="jobs.length > 0 || loading"
-        :columns="columns"
-        :data="jobs"
-        :loading="loading"
-        :row-key="(row: ManualJob) => row.id"
-        :checked-row-keys="checkedRowKeys"
-        @update:checked-row-keys="handleCheckedRowKeysChange"
-      />
+      <!-- 加载骨架屏 -->
+      <PageSkeleton v-if="loading && jobs.length === 0" preset="list" :count="5" />
 
-      <!-- 空状态 -->
-      <EmptyState
-        v-else
-        title="暂无任务"
-        description="创建一个新的刮削任务开始吧"
-        action-text="创建任务"
-        @action="showCreateModal = true"
-      />
+      <!-- 移动端卡片列表 -->
+      <template v-else-if="isMobile">
+        <div v-if="jobs.length > 0" class="mobile-job-list">
+          <TouchCard
+            v-for="job in jobs"
+            :key="job.id"
+            clickable
+            class="job-card"
+            @click="goToHistory(job)"
+          >
+            <div class="job-card-content">
+              <div class="job-header">
+                <span class="job-id">#{{ job.id }}</span>
+                <StatusBadge :status="getJobStatusBadge(job.status).status" :text="getJobStatusBadge(job.status).text" size="small" />
+              </div>
+              <div class="job-path">{{ job.scan_path }}</div>
+              <div class="job-target">
+                <span class="label">目标：</span>
+                {{ job.target_folder }}
+              </div>
+              <div class="job-meta">
+                <NTag :type="linkModeMap[job.link_mode]?.type || 'default'" size="small" :bordered="false">
+                  {{ linkModeMap[job.link_mode]?.label || '未知' }}
+                </NTag>
+                <span class="job-time">{{ formatTime(job.created_at) }}</span>
+              </div>
+              <!-- 进度条 -->
+              <div v-if="job.status === 'running' || job.total_count > 0" class="job-progress">
+                <NProgress
+                  type="line"
+                  :percentage="getProgressPercent(job)"
+                  :status="job.status === 'failed' ? 'error' : job.status === 'success' ? 'success' : 'default'"
+                  :show-indicator="false"
+                  :height="6"
+                />
+                <div class="progress-stats">
+                  <span class="stat success">{{ job.success_count }}</span>
+                  <span class="stat skip">{{ job.skip_count }}</span>
+                  <span class="stat error">{{ job.error_count }}</span>
+                  <span class="stat total">/ {{ job.total_count }}</span>
+                </div>
+              </div>
+            </div>
+            <template #suffix>
+              <NIcon :component="ChevronForwardOutline" class="chevron-icon" />
+            </template>
+          </TouchCard>
+        </div>
+        <EmptyState
+          v-else
+          title="暂无任务"
+          description="创建一个新的刮削任务开始吧"
+          action-text="创建任务"
+          @action="showCreateModal = true"
+        />
+      </template>
+
+      <!-- 桌面端表格 -->
+      <template v-else>
+        <NDataTable
+          v-if="jobs.length > 0"
+          :columns="columns"
+          :data="jobs"
+          :loading="loading"
+          :row-key="(row: ManualJob) => row.id"
+          :checked-row-keys="checkedRowKeys"
+          @update:checked-row-keys="handleCheckedRowKeysChange"
+        />
+        <EmptyState
+          v-else
+          title="暂无任务"
+          description="创建一个新的刮削任务开始吧"
+          action-text="创建任务"
+          @action="showCreateModal = true"
+        />
+      </template>
 
       <!-- 分页 -->
       <div v-if="total > pageSize" class="pagination">
@@ -426,5 +511,107 @@ onUnmounted(() => {
   .toolbar-right {
     justify-content: flex-end;
   }
+}
+
+/* 移动端任务卡片样式 */
+.mobile-job-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.job-card {
+  border-radius: 12px;
+}
+
+.job-card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.job-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.job-id {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--n-text-color-3);
+}
+
+.job-path {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--n-text-color-1);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-target {
+  font-size: 13px;
+  color: var(--n-text-color-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-target .label {
+  color: var(--n-text-color-3);
+}
+
+.job-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.job-time {
+  color: var(--n-text-color-3);
+}
+
+.job-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.progress-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.progress-stats .stat {
+  font-weight: 500;
+}
+
+.progress-stats .stat.success {
+  color: var(--ios-green);
+}
+
+.progress-stats .stat.skip {
+  color: var(--ios-orange);
+}
+
+.progress-stats .stat.error {
+  color: var(--ios-red);
+}
+
+.progress-stats .stat.total {
+  color: var(--n-text-color-3);
+}
+
+.chevron-icon {
+  color: var(--n-text-color-3);
+  font-size: 18px;
 }
 </style>

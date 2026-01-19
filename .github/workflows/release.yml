@@ -215,10 +215,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 下载所有构建产物
+      - name: 下载 Docker 镜像 (amd64)
         uses: actions/download-artifact@v4
         with:
-          path: artifacts/
+          name: docker-image-amd64
+          path: artifacts/docker-image-amd64
+
+      - name: 下载 Docker 镜像 (arm64)
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image-arm64
+          path: artifacts/docker-image-arm64
+
+      - name: 下载前端包
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-zip
+          path: artifacts/frontend-zip
 
       - name: 整理发布文件
         run: |

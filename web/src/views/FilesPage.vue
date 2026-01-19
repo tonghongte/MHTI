@@ -21,15 +21,20 @@ import {
   AddOutline,
   ArrowBackOutline,
   SwapHorizontalOutline,
+  ChevronForwardOutline,
 } from '@vicons/ionicons5'
 import { filesApi } from '@/api/files'
 import type { DirectoryEntry } from '@/api/types'
 import EmptyState from '@/components/common/EmptyState.vue'
+import TouchCard from '@/components/common/TouchCard.vue'
+import PageSkeleton from '@/components/common/PageSkeleton.vue'
 import ManualJobCreateModal from '@/components/scan/ManualJobCreateModal.vue'
+import { useMobileLayout } from '@/composables/useMobileLayout'
 
 const route = useRoute()
 const router = useRouter()
 const message = useMessage()
+const { isMobile } = useMobileLayout()
 
 const loading = ref(false)
 const entries = ref<DirectoryEntry[]>([])
@@ -340,24 +345,74 @@ loadDirectory(initPath.value, initPage.value)
         </div>
       </div>
 
-      <!-- 表格 -->
-      <NDataTable
-        v-if="filteredEntries.length > 0 || loading"
-        :columns="columns"
-        :data="filteredEntries"
-        :loading="loading"
-        :row-key="(row: DirectoryEntry) => row.path"
-        :checked-row-keys="checkedRowKeys"
-        :row-props="rowProps"
-        @update:checked-row-keys="handleCheckedRowKeysChange"
-      />
+      <!-- 加载骨架屏 -->
+      <PageSkeleton v-if="loading && entries.length === 0" preset="list" :count="8" />
 
-      <!-- 空状态 -->
-      <EmptyState
-        v-else-if="!loading"
-        title="目录为空"
-        description="当前目录没有文件或文件夹"
-      />
+      <!-- 移动端文件列表 -->
+      <template v-else-if="isMobile">
+        <div v-if="filteredEntries.length > 0" class="mobile-file-list">
+          <TouchCard
+            v-for="entry in filteredEntries"
+            :key="entry.path"
+            clickable
+            class="file-card"
+            @click="entry.is_dir ? enterDirectory(entry) : undefined"
+          >
+            <div class="file-card-content">
+              <div class="file-icon-wrapper" :class="{ 'is-folder': entry.is_dir }">
+                <NIcon :component="entry.is_dir ? FolderOutline : DocumentOutline" :size="24" />
+              </div>
+              <div class="file-info">
+                <div class="file-name-text">{{ entry.name }}</div>
+                <div class="file-meta">
+                  <span v-if="entry.size !== null" class="file-size">{{ formatSize(entry.size) }}</span>
+                  <span v-if="entry.mtime" class="file-time">{{ formatTime(entry.mtime) }}</span>
+                </div>
+              </div>
+            </div>
+            <template #suffix>
+              <div class="file-actions">
+                <NButton
+                  v-if="entry.is_dir"
+                  size="tiny"
+                  quaternary
+                  circle
+                  @click.stop="createTaskForFolder(entry)"
+                >
+                  <template #icon>
+                    <NIcon :component="AddOutline" />
+                  </template>
+                </NButton>
+                <NIcon v-if="entry.is_dir" :component="ChevronForwardOutline" class="chevron-icon" />
+              </div>
+            </template>
+          </TouchCard>
+        </div>
+        <EmptyState
+          v-else
+          title="目录为空"
+          description="当前目录没有文件或文件夹"
+        />
+      </template>
+
+      <!-- 桌面端表格 -->
+      <template v-else>
+        <NDataTable
+          v-if="filteredEntries.length > 0"
+          :columns="columns"
+          :data="filteredEntries"
+          :loading="loading"
+          :row-key="(row: DirectoryEntry) => row.path"
+          :checked-row-keys="checkedRowKeys"
+          :row-props="rowProps"
+          @update:checked-row-keys="handleCheckedRowKeysChange"
+        />
+        <EmptyState
+          v-else-if="!loading"
+          title="目录为空"
+          description="当前目录没有文件或文件夹"
+        />
+      </template>
 
       <!-- 分页 -->
       <div v-if="total > pageSize" class="pagination">
@@ -551,5 +606,85 @@ loadDirectory(initPath.value, initPage.value)
   .breadcrumb-bar {
     overflow-x: auto;
   }
+}
+
+/* 移动端文件列表样式 */
+.mobile-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.file-card {
+  border-radius: 12px;
+}
+
+.file-card-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.file-icon-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--n-color-modal);
+  color: var(--n-text-color-3);
+  flex-shrink: 0;
+}
+
+.file-icon-wrapper.is-folder {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+
+.file-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.file-name-text {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--n-text-color-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--n-text-color-3);
+}
+
+.file-size {
+  color: var(--n-text-color-2);
+}
+
+.file-time {
+  color: var(--n-text-color-3);
+}
+
+.file-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chevron-icon {
+  color: var(--n-text-color-3);
+  font-size: 18px;
 }
 </style>

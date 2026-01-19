@@ -21,12 +21,17 @@ import {
   ArrowBackOutline,
   SearchOutline,
   RefreshOutline,
+  ChevronForwardOutline,
 } from '@vicons/ionicons5'
 import { historyApi } from '@/api/history'
 import type { HistoryRecord, TaskStatus, HistoryRecordDetail } from '@/api/types'
 import ResolveConflictModal from '@/components/history/ResolveConflictModal.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import TouchCard from '@/components/common/TouchCard.vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import PageSkeleton from '@/components/common/PageSkeleton.vue'
 import { useWebSocket, type WSMessage } from '@/composables/useWebSocket'
+import { useMobileLayout } from '@/composables/useMobileLayout'
 
 const route = useRoute()
 const router = useRouter()
@@ -41,6 +46,7 @@ const statusFilter = ref<TaskStatus | null>(null)
 
 // WebSocket 实时更新
 const { registerHandler, unregisterHandler } = useWebSocket()
+const { isMobile } = useMobileLayout()
 
 // 处理弹窗相关
 const showResolveModal = ref(false)
@@ -190,6 +196,20 @@ const statusTag = (status: TaskStatus) => {
     running: { type: 'info' as const, text: '处理中' },
   }
   return map[status]
+}
+
+// 转换任务状态为徽章状态
+const getStatusBadge = (status: TaskStatus): { status: 'success' | 'warning' | 'error' | 'info' | 'pending' | 'default'; text: string } => {
+  const map: Record<TaskStatus, { status: 'success' | 'warning' | 'error' | 'info' | 'pending' | 'default'; text: string }> = {
+    success: { status: 'success', text: '成功' },
+    failed: { status: 'error', text: '失败' },
+    timeout: { status: 'warning', text: '超时' },
+    cancelled: { status: 'warning', text: '取消' },
+    skipped: { status: 'default', text: '跳过' },
+    pending_action: { status: 'pending', text: '待处理' },
+    running: { status: 'info', text: '处理中' },
+  }
+  return map[status] || { status: 'default', text: status }
 }
 
 // 表格列
@@ -433,22 +453,84 @@ watch(manualJobId, () => {
         <NTag size="small" type="info">{{ total }} 条</NTag>
       </div>
 
-      <!-- 表格 -->
-      <NDataTable
-        v-if="records.length > 0 || loading"
-        :columns="columns"
-        :data="records"
-        :loading="loading"
-        :row-key="(row: HistoryRecord) => row.id"
-        :row-props="rowProps"
-      />
+      <!-- 加载骨架屏 -->
+      <PageSkeleton v-if="loading && records.length === 0" preset="list" :count="6" />
 
-      <!-- 空状态 -->
-      <EmptyState
-        v-else
-        title="暂无记录"
-        description="还没有任何刮削记录"
-      />
+      <!-- 移动端卡片列表 -->
+      <template v-else-if="isMobile">
+        <div v-if="records.length > 0" class="mobile-record-list">
+          <TouchCard
+            v-for="record in records"
+            :key="record.id"
+            clickable
+            class="record-card"
+            @click="router.push(`/history/${record.id}`)"
+          >
+            <div class="record-card-content">
+              <div class="record-header">
+                <span class="record-id">#{{ record.display_id }}</span>
+                <StatusBadge :status="getStatusBadge(record.status).status" :text="getStatusBadge(record.status).text" size="small" />
+              </div>
+              <div class="record-title">{{ record.title || '未知标题' }}</div>
+              <div class="record-meta">
+                <span v-if="record.season_number && record.episode_number" class="record-episode">
+                  S{{ record.season_number.toString().padStart(2, '0') }}E{{ record.episode_number.toString().padStart(2, '0') }}
+                </span>
+                <span class="record-time">{{ formatTime(record.executed_at) }}</span>
+              </div>
+              <div class="record-folder">{{ getFolder(record.folder_path) }}</div>
+              <div class="record-actions">
+                <NTag :type="getTriggerType(record).type" size="small" :bordered="false">
+                  {{ getTriggerType(record).text }}
+                </NTag>
+                <div class="action-buttons">
+                  <NButton
+                    v-if="record.status === 'pending_action'"
+                    size="tiny"
+                    type="primary"
+                    @click.stop="openResolveModal(record)"
+                  >
+                    处理
+                  </NButton>
+                  <NButton
+                    size="tiny"
+                    quaternary
+                    type="error"
+                    @click.stop="deleteRecord(record)"
+                  >
+                    删除
+                  </NButton>
+                </div>
+              </div>
+            </div>
+            <template #suffix>
+              <NIcon :component="ChevronForwardOutline" class="chevron-icon" />
+            </template>
+          </TouchCard>
+        </div>
+        <EmptyState
+          v-else
+          title="暂无记录"
+          description="还没有任何刮削记录"
+        />
+      </template>
+
+      <!-- 桌面端表格 -->
+      <template v-else>
+        <NDataTable
+          v-if="records.length > 0"
+          :columns="columns"
+          :data="records"
+          :loading="loading"
+          :row-key="(row: HistoryRecord) => row.id"
+          :row-props="rowProps"
+        />
+        <EmptyState
+          v-else
+          title="暂无记录"
+          description="还没有任何刮削记录"
+        />
+      </template>
 
       <!-- 分页 -->
       <div v-if="total > pageSize" class="pagination">
@@ -570,5 +652,86 @@ watch(manualJobId, () => {
   .toolbar-right {
     justify-content: flex-end;
   }
+}
+
+/* 移动端卡片列表样式 */
+.mobile-record-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.record-card {
+  border-radius: 12px;
+}
+
+.record-card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.record-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.record-id {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--n-text-color-3);
+}
+
+.record-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--n-text-color-1);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.record-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--n-text-color-3);
+}
+
+.record-episode {
+  font-weight: 500;
+  color: var(--ios-blue);
+  background: var(--ios-blue-light);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.record-folder {
+  font-size: 12px;
+  color: var(--n-text-color-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.record-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.chevron-icon {
+  color: var(--n-text-color-3);
+  font-size: 18px;
 }
 </style>

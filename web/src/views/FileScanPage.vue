@@ -7,7 +7,6 @@ import {
   NInput,
   NIcon,
   NPagination,
-  NModal,
   useMessage,
   type DataTableColumns,
   type DataTableRowKey,
@@ -267,17 +266,12 @@ const handleCreateSuccess = () => {
     </NCard>
 
     <!-- 文件夹选择弹窗 -->
-    <NModal
+    <FolderBrowser
       v-model:show="showFolderBrowser"
-      preset="card"
+      v-model="scanPath"
       title="选择文件夹"
-      style="width: 600px; max-width: 90vw"
-    >
-      <FolderBrowser
-        v-model="scanPath"
-        @select="handleFolderSelect"
-      />
-    </NModal>
+      @select="handleFolderSelect"
+    />
 
     <!-- 创建任务弹窗 -->
     <ManualJobCreateModal

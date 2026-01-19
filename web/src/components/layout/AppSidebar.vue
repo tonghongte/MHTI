@@ -15,16 +15,22 @@ import {
 } from '@vicons/ionicons5'
 import { useTheme } from '@/composables/useTheme'
 import { useAuthStore } from '@/stores/auth'
+import { useMobileLayout } from '@/composables/useMobileLayout'
 import AdminConfigDrawer from './AdminConfigDrawer.vue'
 
 const props = defineProps<{
   collapsed?: boolean
 }>()
 
+const emit = defineEmits<{
+  navigate: [path: string]
+}>()
+
 const route = useRoute()
 const router = useRouter()
 const { isDark, toggleTheme } = useTheme()
 const authStore = useAuthStore()
+const { isMobile } = useMobileLayout()
 
 // 管理员配置抽屉状态
 const showAdminDrawer = ref(false)
@@ -77,6 +83,8 @@ const activeKey = computed(() => route.path)
 
 const handleMenuUpdate = (key: string) => {
   router.push(key)
+  // 触发导航事件（用于移动端抽屉关闭）
+  emit('navigate', key)
 }
 
 // 打开管理员配置抽屉
