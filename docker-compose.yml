@@ -10,7 +10,11 @@
 
 services:
   mhti:
-    image: xiyan520/mhti:latest
+    # 稳定版（每次打 v*.*.* 标签时更新）：
+    # image: xiyan520/mhti:latest
+    # 最新开发版（每次 push 到 main 分支时自动更新，需先登录 GHCR）：
+    image: ghcr.io/xiyan520/mhti:main
+    pull_policy: always   # docker compose up 时自动拉取最新镜像
     container_name: mhti
     restart: unless-stopped
 
