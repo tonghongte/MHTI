@@ -145,16 +145,25 @@ class ScraperMediaMixin:
         self,
         source_video_path: str,
         dest_video_path: str,
+        season: int | None = None,
+        episode: int | None = None,
     ) -> list[str]:
         """查找并移动与视频关联的字幕文件。
+
+        匹配逻辑（按优先级）：
+        1. 文件名比对：字幕 base name 与源视频名匹配
+        2. 集号比对（fallback）：字幕含 S01E01 模式，与指定 season/episode 一致
 
         Args:
             source_video_path: 原视频文件路径。
             dest_video_path: 目标视频文件路径。
+            season: 季号（用于集号 fallback 匹配）。
+            episode: 集号（用于集号 fallback 匹配）。
 
         Returns:
             已移动的字幕文件路径列表。
         """
+        import re
         source_path = Path(source_video_path)
         dest_path = Path(dest_video_path)
         source_folder = source_path.parent
@@ -170,32 +179,47 @@ class ScraperMediaMixin:
             logger.info("未找到关联字幕文件")
             return moved_subtitles
 
+        _ep_re = re.compile(r"[Ss](\d+)[Ee](\d+)")
+
+        def _episode_matches(sub_base: str) -> bool:
+            """集号 fallback：字幕含 SxxExx 且与目标季/集一致。"""
+            if season is None or episode is None:
+                return False
+            m = _ep_re.search(sub_base)
+            return bool(m and int(m.group(1)) == season and int(m.group(2)) == episode)
+
         # 查找匹配的字幕
         for sub in scan_result.subtitles:
             sub_base = self.subtitle_service._get_base_name(sub.filename)
-            if self.subtitle_service._names_match(source_stem, sub_base):
-                # 重命名并移动字幕
-                result = self.subtitle_service.rename_subtitle(
-                    subtitle_path=sub.path,
-                    new_video_name=dest_stem,
-                    preserve_language=True,
-                )
-                if result.success:
-                    # 如果目标文件夹不同，移动到目标文件夹
-                    renamed_path = Path(result.dest_path)
-                    if renamed_path.parent != dest_folder:
-                        final_path = dest_folder / renamed_path.name
-                        try:
-                            shutil.move(str(renamed_path), str(final_path))
-                            moved_subtitles.append(str(final_path))
-                            logger.info(f"字幕已移动: {renamed_path.name} -> {final_path}")
-                        except OSError as e:
-                            logger.warning(f"字幕移动失败: {e}")
-                    else:
-                        moved_subtitles.append(result.dest_path)
-                        logger.info(f"字幕已重命名: {sub.filename} -> {renamed_path.name}")
+            matched = (
+                self.subtitle_service._names_match(source_stem, sub_base)
+                or _episode_matches(sub_base)
+            )
+            if not matched:
+                continue
+
+            # 重命名并移动字幕
+            result = self.subtitle_service.rename_subtitle(
+                subtitle_path=sub.path,
+                new_video_name=dest_stem,
+                preserve_language=True,
+            )
+            if result.success:
+                # 如果目标文件夹不同，移动到目标文件夹
+                renamed_path = Path(result.dest_path)
+                if renamed_path.parent != dest_folder:
+                    final_path = dest_folder / renamed_path.name
+                    try:
+                        shutil.move(str(renamed_path), str(final_path))
+                        moved_subtitles.append(str(final_path))
+                        logger.info(f"字幕已移动: {renamed_path.name} -> {final_path}")
+                    except OSError as e:
+                        logger.warning(f"字幕移动失败: {e}")
                 else:
-                    logger.warning(f"字幕处理失败: {result.error}")
+                    moved_subtitles.append(result.dest_path)
+                    logger.info(f"字幕已重命名: {sub.filename} -> {renamed_path.name}")
+            else:
+                logger.warning(f"字幕处理失败: {result.error}")
 
         return moved_subtitles
 

@@ -606,7 +606,7 @@ class ScraperService(ScraperConfigMixin, ScraperMetadataMixin, ScraperMediaMixin
             await notify_log_update()
 
             # 处理关联字幕文件
-            self._process_subtitles(file_path, str(dest_file))
+            self._process_subtitles(file_path, str(dest_file), season=season_num, episode=episode_num)
 
         except Exception as e:
             move_step.logs.append(ScrapeLogEntry(message=f"文件{mode_name}失败: {str(e)}", level=LogLevel.ERROR))
@@ -865,7 +865,7 @@ class ScraperService(ScraperConfigMixin, ScraperMetadataMixin, ScraperMediaMixin
             await notify_log_update()
 
             # 处理关联字幕文件
-            self._process_subtitles(file_path, str(dest_file))
+            self._process_subtitles(file_path, str(dest_file), season=request.season, episode=request.episode)
 
         except Exception as e:
             move_step.logs.append(ScrapeLogEntry(message=f"文件{mode_name}失败: {str(e)}", level=LogLevel.ERROR))

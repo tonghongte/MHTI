@@ -17,6 +17,16 @@ from server.models.subtitle import (
 # Supported subtitle extensions
 SUBTITLE_EXTENSIONS = {".srt", ".ass", ".ssa", ".sub", ".idx", ".vtt", ".sup"}
 
+# Season/episode pattern (e.g. S01E01, s1e2)
+_EPISODE_RE = re.compile(r"[Ss](\d+)[Ee](\d+)")
+
+# Non-semantic descriptor tags that may appear in subtitle filenames
+# e.g. "S01E01.chs.assfonts.ass" → strip "assfonts" to reach "chs"
+_SUBTITLE_DESCRIPTOR_TAGS = {
+    "assfonts", "fonts", "hi", "forced", "sdh", "cc",
+    "default", "full", "signs", "songs", "commentary",
+}
+
 # Supported video extensions (for association)
 VIDEO_EXTENSIONS = {
     ".mp4", ".mkv", ".avi", ".wmv", ".mov", ".flv", ".rmvb",
@@ -249,40 +259,41 @@ class SubtitleService:
     def _extract_language(self, filename: str) -> SubtitleLanguage | None:
         """Extract language tag from filename.
 
+        Handles multi-segment names like "S01E01.chs.assfonts.ass" by
+        scanning dot-parts from the right, skipping known descriptor tags.
+
         Args:
             filename: Subtitle filename.
 
         Returns:
             Detected language or None.
         """
-        # Remove extension
         name = Path(filename).stem
 
-        # Check for language tag at end (e.g., "video.chs" or "video.eng")
+        # Scan dot-parts from right; skip descriptor tags, stop on first
+        # non-tag/non-language part. This handles "S01E01.chs.assfonts" → chs.
         parts = name.split(".")
-        if len(parts) > 1:
-            last_part = parts[-1].lower()
-            if last_part in LANGUAGE_MAPPINGS:
-                return LANGUAGE_MAPPINGS[last_part]
+        for part in reversed(parts):
+            tag = part.lower()
+            if tag in LANGUAGE_MAPPINGS:
+                return LANGUAGE_MAPPINGS[tag]
+            if tag not in _SUBTITLE_DESCRIPTOR_TAGS:
+                break  # hit actual content part, stop scanning
 
-        # Check for language in brackets or parentheses
-        patterns = [
-            r"\[([^\]]+)\]",  # [chs]
-            r"\(([^\)]+)\)",  # (chs)
-            r"\.([a-zA-Z]{2,3})$",  # .chs
-        ]
-
-        for pattern in patterns:
-            matches = re.findall(pattern, name, re.IGNORECASE)
-            for match in matches:
-                match_lower = match.lower()
-                if match_lower in LANGUAGE_MAPPINGS:
-                    return LANGUAGE_MAPPINGS[match_lower]
+        # Fallback: check bracket / parenthesis patterns
+        for pattern in [r"\[([^\]]+)\]", r"\(([^\)]+)\)"]:
+            for match in re.findall(pattern, name, re.IGNORECASE):
+                if match.lower() in LANGUAGE_MAPPINGS:
+                    return LANGUAGE_MAPPINGS[match.lower()]
 
         return None
 
     def _get_base_name(self, filename: str) -> str:
-        """Get base name of subtitle without language tag and extension.
+        """Get base name of subtitle without language tag, descriptors, and extension.
+
+        Handles multi-segment names like "S01E01.chs.assfonts.ass":
+        strips trailing descriptor tags AND language codes from the right
+        until reaching the actual content identifier ("S01E01").
 
         Args:
             filename: Subtitle filename.
@@ -290,20 +301,24 @@ class SubtitleService:
         Returns:
             Base name for matching.
         """
-        # Remove extension
         name = Path(filename).stem
-
-        # Remove language tag if present
         parts = name.split(".")
-        if len(parts) > 1:
-            last_part = parts[-1].lower()
-            if last_part in LANGUAGE_MAPPINGS:
-                return ".".join(parts[:-1])
 
-        return name
+        # Strip trailing language codes and descriptor tags from the right
+        while len(parts) > 1:
+            tag = parts[-1].lower()
+            if tag in LANGUAGE_MAPPINGS or tag in _SUBTITLE_DESCRIPTOR_TAGS:
+                parts.pop()
+            else:
+                break
+
+        return ".".join(parts)
 
     def _names_match(self, video_name: str, subtitle_base: str) -> bool:
         """Check if video name matches subtitle base name.
+
+        Falls back to episode-number matching when names differ, so
+        "XXX - S01E01 - Title" can match a subtitle named "S01E01".
 
         Args:
             video_name: Video filename stem.
@@ -316,10 +331,20 @@ class SubtitleService:
         if video_name.lower() == subtitle_base.lower():
             return True
 
-        # Normalize for comparison (remove common variations)
+        # Normalized match (strip separators)
         def normalize(s: str) -> str:
-            s = s.lower()
-            s = re.sub(r"[\s\._-]+", "", s)
-            return s
+            return re.sub(r"[\s\._-]+", "", s.lower())
 
-        return normalize(video_name) == normalize(subtitle_base)
+        if normalize(video_name) == normalize(subtitle_base):
+            return True
+
+        # Episode-number fallback: "XXX - S01E01 - Title" matches "S01E01"
+        video_ep = _EPISODE_RE.search(video_name)
+        sub_ep = _EPISODE_RE.search(subtitle_base)
+        if video_ep and sub_ep:
+            return (video_ep.group(1).zfill(2), video_ep.group(2).zfill(2)) == (
+                sub_ep.group(1).zfill(2),
+                sub_ep.group(2).zfill(2),
+            )
+
+        return False
