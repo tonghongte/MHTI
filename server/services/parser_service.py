@@ -50,6 +50,7 @@ class ParserService:
             season=ctx.season,
             episode=ctx.episode,
             year=ctx.year,
+            tmdb_id=ctx.tmdb_id,
             is_parsed=ctx.episode is not None or ctx.series_name is not None,
             confidence=ctx.confidence,
         )

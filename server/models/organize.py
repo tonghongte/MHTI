@@ -11,6 +11,7 @@ class OrganizeMode(str, Enum):
     MOVE = "move"  # 移动模式
     HARDLINK = "hardlink"  # 硬链接模式
     SYMLINK = "symlink"  # 软链接模式
+    INPLACE = "inplace"  # 原地整理模式（在原位置重命名文件夹和文件，不移动到新目录）
 
 
 class OrganizeConfig(BaseModel):

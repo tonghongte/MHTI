@@ -23,6 +23,7 @@ class LinkMode(int, Enum):
     MOVE = 2
     COPY = 3
     SYMLINK = 4
+    INPLACE = 5  # 原地整理模式
 
 
 class JobSource(str, Enum):
@@ -99,7 +100,7 @@ class ManualJobCreate(BaseModel):
     """Request for creating a manual job."""
 
     scan_path: str
-    target_folder: str
+    target_folder: str = ""  # 原地整理模式时可为空
     metadata_dir: str = ""  # 元数据目录
     link_mode: LinkMode = LinkMode.MOVE
     delete_empty_parent: bool = True

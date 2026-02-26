@@ -54,6 +54,8 @@ class RenameService:
         series_folder = self._template_service.sanitize_filename(series_folder)
         # 如果没有年份，移除空括号
         series_folder = series_folder.replace(" ()", "")
+        # 如果没有 TMDB ID，移除空的 tmdbid 标签
+        series_folder = series_folder.replace(" [tmdbid-]", "")
 
         season_folder = self._template_service.format_filename(
             self._default_template.season_folder, data
@@ -226,6 +228,7 @@ class RenameService:
             "episode": request.episode,
             "episode_title": request.episode_title or "",
             "year": request.year or "",
+            "tmdb_id": request.tmdb_id or "",
             "original_title": request.title,  # Default to title if not provided
             "air_date": "",
         }

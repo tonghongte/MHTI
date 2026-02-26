@@ -342,7 +342,7 @@ export interface WatcherStatusResponse {
 }
 
 // 整理配置相关
-export type OrganizeMode = 'copy' | 'move' | 'hardlink' | 'symlink'
+export type OrganizeMode = 'copy' | 'move' | 'hardlink' | 'symlink' | 'inplace'
 
 export interface OrganizeConfig {
   organize_dir: string
@@ -445,6 +445,7 @@ export const LinkMode = {
   MOVE: 2,
   COPY: 3,
   SYMLINK: 4,
+  INPLACE: 5,
 } as const
 
 export type LinkMode = (typeof LinkMode)[keyof typeof LinkMode]

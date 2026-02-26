@@ -29,6 +29,7 @@ def _link_mode_to_organize_mode(link_mode: LinkMode) -> OrganizeMode:
         LinkMode.MOVE: OrganizeMode.MOVE,
         LinkMode.COPY: OrganizeMode.COPY,
         LinkMode.SYMLINK: OrganizeMode.SYMLINK,
+        LinkMode.INPLACE: OrganizeMode.INPLACE,
     }
     return mapping.get(link_mode, OrganizeMode.MOVE)
 

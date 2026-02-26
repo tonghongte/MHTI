@@ -80,18 +80,24 @@ const steps = [
   { title: '预览确认', icon: CheckmarkCircleOutline },
 ]
 
+// 是否原地整理模式
+const isInplaceMode = computed(() => formData.value.link_mode === LinkMode.INPLACE)
+
 // 当前步骤状态
 const currentStepStatus = computed(() => {
   if (currentStep.value === 1) {
-    return formData.value.scan_path && formData.value.target_folder ? 'finish' : 'process'
+    const hasPath = !!formData.value.scan_path
+    const hasTarget = !!formData.value.target_folder || isInplaceMode.value
+    return hasPath && hasTarget ? 'finish' : 'process'
   }
   return 'process'
 })
 
-// 是否可以进入下一步
+
+// 是否可以进入下一步（步骤 1 只要有刮削路径即可继续，目标目录在提交时验证）
 const canProceed = computed(() => {
   if (currentStep.value === 1) {
-    return formData.value.scan_path.trim() !== '' && formData.value.target_folder.trim() !== ''
+    return formData.value.scan_path.trim() !== ''
   }
   return true
 })
@@ -190,7 +196,7 @@ const handleSubmit = async () => {
     message.warning('请输入刮削路径')
     return
   }
-  if (!formData.value.target_folder.trim()) {
+  if (!isInplaceMode.value && !formData.value.target_folder.trim()) {
     message.warning('请输入整理目录')
     return
   }
@@ -284,6 +290,7 @@ onMounted(() => {
           v-model:metadata-dir="formData.metadata_dir"
           :watched-folders="watchedFolders"
           :global-config="globalOrganizeConfig"
+          :is-inplace="isInplaceMode"
         />
 
         <!-- 步骤 2: 配置选项 -->

@@ -20,6 +20,7 @@ DEFAULT_SAMPLE_DATA = {
     "episode": 1,
     "episode_title": "凛冬将至",
     "air_date": "2011-04-17",
+    "tmdb_id": 1399,
 }
 
 # Regex pattern to find template variables

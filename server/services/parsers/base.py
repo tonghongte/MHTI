@@ -19,6 +19,7 @@ class ParseContext:
     season: int | None = None
     episode: int | None = None
     year: int | None = None
+    tmdb_id: int | None = None  # 从路径中提取的 TMDB ID
 
     # 元数据
     confidence: float = 0.0

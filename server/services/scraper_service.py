@@ -7,6 +7,7 @@
 """
 
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
@@ -48,7 +49,11 @@ _MODE_NAMES = {
     OrganizeMode.MOVE: "移动",
     OrganizeMode.HARDLINK: "硬链接",
     OrganizeMode.SYMLINK: "软链接",
+    OrganizeMode.INPLACE: "原地整理",
 }
+
+# Season 文件夹名称匹配模式
+_SEASON_FOLDER_RE = re.compile(r"^[Ss]eason\s*\d+$|^[Ss]\d{1,2}$")
 
 
 def _get_mode_name(mode: OrganizeMode | None) -> str:
@@ -56,6 +61,23 @@ def _get_mode_name(mode: OrganizeMode | None) -> str:
     if mode is None:
         return "移动"
     return _MODE_NAMES.get(mode, "移动")
+
+
+def _resolve_inplace_output_dir(file_path: str) -> str:
+    """为原地整理模式计算 output_dir。
+
+    逻辑：
+    - 若文件父目录是 Season 文件夹，则向上两级作为 output_dir
+    - 否则向上一级作为 output_dir
+
+    这样 rename_service 会在 output_dir 下创建新的剧集文件夹结构，
+    实现"原地"重命名效果（剧集文件夹同级改名）。
+    """
+    path = Path(file_path)
+    parent = path.parent
+    if _SEASON_FOLDER_RE.match(parent.name):
+        return str(parent.parent.parent)
+    return str(parent.parent)
 
 
 class ScraperService(ScraperConfigMixin, ScraperMetadataMixin, ScraperMediaMixin):
@@ -110,7 +132,7 @@ class ScraperService(ScraperConfigMixin, ScraperMetadataMixin, ScraperMediaMixin
         """
         path = Path(file_path)
 
-        # Parse filename
+        # Parse filename (包括从上层文件夹提取元数据)
         parsed = self.parser_service.parse(path.name, file_path)
 
         preview = ScrapePreview(
@@ -120,8 +142,28 @@ class ScraperService(ScraperConfigMixin, ScraperMetadataMixin, ScraperMediaMixin
             parsed_episode=parsed.episode,
         )
 
-        # Search TMDB if we have a title
-        if parsed.series_name:
+        # 若从路径中提取到 TMDB ID，直接获取剧集详情
+        if parsed.tmdb_id:
+            try:
+                series = await self.tmdb_service.get_series_by_api(parsed.tmdb_id)
+                if series:
+                    from server.models.tmdb import TMDBSearchResult
+                    preview.search_results = [TMDBSearchResult(
+                        id=series.id,
+                        name=series.name,
+                        original_name=series.original_name,
+                        overview=series.overview,
+                        poster_path=series.poster_path,
+                        first_air_date=series.first_air_date,
+                        vote_average=series.vote_average,
+                        adult=True,  # 仅刮削成人内容，路径已包含 TMDB ID 视为有效
+                        number_of_seasons=series.number_of_seasons,
+                        number_of_episodes=series.number_of_episodes,
+                    )]
+            except (httpx.TimeoutException, httpx.RequestError):
+                pass
+        # 否则通过标题搜索
+        elif parsed.series_name:
             try:
                 search_response = await self.tmdb_service.search_series_by_api(parsed.series_name)
                 preview.search_results = search_response.results
@@ -184,8 +226,8 @@ class ScraperService(ScraperConfigMixin, ScraperMetadataMixin, ScraperMediaMixin
             parsed_episode=parsed.episode,
         )
 
-        if not parsed.series_name:
-            parse_step.logs.append(ScrapeLogEntry(message="无法从文件名解析出剧集名称", level=LogLevel.ERROR))
+        if not parsed.series_name and not parsed.tmdb_id:
+            parse_step.logs.append(ScrapeLogEntry(message="无法从文件名或上层文件夹解析出剧集信息", level=LogLevel.ERROR))
             parse_step.completed = False
             scrape_logs.append(parse_step)
             await notify_log_update()
@@ -194,76 +236,88 @@ class ScraperService(ScraperConfigMixin, ScraperMetadataMixin, ScraperMediaMixin
             result.scrape_logs = scrape_logs
             return result
 
-        parse_step.logs.append(ScrapeLogEntry(message=f"解析结果: {parsed.series_name} S{parsed.season or '?'}E{parsed.episode or '?'}"))
+        if parsed.tmdb_id:
+            parse_step.logs.append(ScrapeLogEntry(message=f"从路径提取 TMDB ID: {parsed.tmdb_id}, 剧名: {parsed.series_name or '未知'}, S{parsed.season or '?'}E{parsed.episode or '?'}"))
+        else:
+            parse_step.logs.append(ScrapeLogEntry(message=f"解析结果: {parsed.series_name} S{parsed.season or '?'}E{parsed.episode or '?'}"))
         scrape_logs.append(parse_step)
         await notify_log_update()
 
-        # Step 2: Search TMDB using API
-        search_step = ScrapeLogStep(name="搜索 TMDB", logs=[])
-        search_step.logs.append(ScrapeLogEntry(message=f"搜索关键词: {parsed.series_name}"))
-        scrape_logs.append(search_step)
-        await notify_log_update()
-
-        try:
-            search_response = await self.tmdb_service.search_series_by_api(parsed.series_name)
-            # 只保留成人内容
-            adult_results = [r for r in search_response.results if r.adult]
-            result.search_results = adult_results
-            search_step.logs.append(ScrapeLogEntry(message=f"找到 {len(adult_results)} 个匹配结果"))
+        # Step 2: 若有 TMDB ID 则直接获取详情，否则搜索
+        if parsed.tmdb_id:
+            # 从路径中已获取 TMDB ID，直接跳到获取详情
+            search_step = ScrapeLogStep(name="搜索 TMDB", logs=[])
+            search_step.logs.append(ScrapeLogEntry(message=f"使用路径中的 TMDB ID: {parsed.tmdb_id}，跳过搜索步骤"))
+            scrape_logs.append(search_step)
             await notify_log_update()
-        except httpx.TimeoutException:
-            search_step.logs.append(ScrapeLogEntry(message="TMDB 搜索超时", level=LogLevel.ERROR))
-            search_step.completed = False
-            await notify_log_update()
-            result.status = ScrapeStatus.SEARCH_FAILED
-            result.message = "TMDB 搜索超时，请检查网络或 Cookie"
-            result.scrape_logs = scrape_logs
-            return result
-        except httpx.RequestError as e:
-            search_step.logs.append(ScrapeLogEntry(message=f"TMDB 搜索失败: {str(e)}", level=LogLevel.ERROR))
-            search_step.completed = False
-            await notify_log_update()
-            result.status = ScrapeStatus.SEARCH_FAILED
-            result.message = f"TMDB 搜索失败: {str(e)}"
-            result.scrape_logs = scrape_logs
-            return result
-
-        if not adult_results:
-            search_step.logs.append(ScrapeLogEntry(message="未找到匹配的成人剧集", level=LogLevel.WARNING))
-            search_step.completed = False
-            await notify_log_update()
-            result.status = ScrapeStatus.NO_MATCH
-            result.message = f"未找到匹配的成人剧集: {parsed.series_name}"
-            result.scrape_logs = scrape_logs
-            return result
-
-        # Step 3: Select match
-        result.search_results = adult_results
-
-        if request.auto_select and len(adult_results) == 1:
-            # 只有一个结果时自动选择
-            selected = adult_results[0]
-            result.selected_id = selected.id
-        elif request.auto_select and len(adult_results) > 1:
-            # 多个结果时需要用户选择，先获取每个结果的详情
-            search_step.logs.append(ScrapeLogEntry(message="获取各剧集详情..."))
-            await notify_log_update()
-            enriched_results = await self._enrich_search_results(adult_results)
-            result.search_results = enriched_results
-            result.status = ScrapeStatus.NEED_SELECTION
-            result.message = f"找到 {len(adult_results)} 个匹配结果，请手动选择"
-            result.scrape_logs = scrape_logs
-            return result
+            result.selected_id = parsed.tmdb_id
         else:
-            # Return results for manual selection
-            search_step.logs.append(ScrapeLogEntry(message="获取各剧集详情..."))
+            # 通过标题搜索 TMDB
+            search_step = ScrapeLogStep(name="搜索 TMDB", logs=[])
+            search_step.logs.append(ScrapeLogEntry(message=f"搜索关键词: {parsed.series_name}"))
+            scrape_logs.append(search_step)
             await notify_log_update()
-            enriched_results = await self._enrich_search_results(adult_results)
-            result.search_results = enriched_results
-            result.status = ScrapeStatus.NEED_SELECTION
-            result.message = "请手动选择匹配的剧集"
-            result.scrape_logs = scrape_logs
-            return result
+
+            try:
+                search_response = await self.tmdb_service.search_series_by_api(parsed.series_name)
+                # 只保留成人内容
+                adult_results = [r for r in search_response.results if r.adult]
+                result.search_results = adult_results
+                search_step.logs.append(ScrapeLogEntry(message=f"找到 {len(adult_results)} 个匹配结果"))
+                await notify_log_update()
+            except httpx.TimeoutException:
+                search_step.logs.append(ScrapeLogEntry(message="TMDB 搜索超时", level=LogLevel.ERROR))
+                search_step.completed = False
+                await notify_log_update()
+                result.status = ScrapeStatus.SEARCH_FAILED
+                result.message = "TMDB 搜索超时，请检查网络或 Cookie"
+                result.scrape_logs = scrape_logs
+                return result
+            except httpx.RequestError as e:
+                search_step.logs.append(ScrapeLogEntry(message=f"TMDB 搜索失败: {str(e)}", level=LogLevel.ERROR))
+                search_step.completed = False
+                await notify_log_update()
+                result.status = ScrapeStatus.SEARCH_FAILED
+                result.message = f"TMDB 搜索失败: {str(e)}"
+                result.scrape_logs = scrape_logs
+                return result
+
+            if not adult_results:
+                search_step.logs.append(ScrapeLogEntry(message="未找到匹配的成人剧集", level=LogLevel.WARNING))
+                search_step.completed = False
+                await notify_log_update()
+                result.status = ScrapeStatus.NO_MATCH
+                result.message = f"未找到匹配的成人剧集: {parsed.series_name}"
+                result.scrape_logs = scrape_logs
+                return result
+
+            # Step 3: Select match
+            result.search_results = adult_results
+
+            if request.auto_select and len(adult_results) == 1:
+                # 只有一个结果时自动选择
+                selected = adult_results[0]
+                result.selected_id = selected.id
+            elif request.auto_select and len(adult_results) > 1:
+                # 多个结果时需要用户选择，先获取每个结果的详情
+                search_step.logs.append(ScrapeLogEntry(message="获取各剧集详情..."))
+                await notify_log_update()
+                enriched_results = await self._enrich_search_results(adult_results)
+                result.search_results = enriched_results
+                result.status = ScrapeStatus.NEED_SELECTION
+                result.message = f"找到 {len(adult_results)} 个匹配结果，请手动选择"
+                result.scrape_logs = scrape_logs
+                return result
+            else:
+                # Return results for manual selection
+                search_step.logs.append(ScrapeLogEntry(message="获取各剧集详情..."))
+                await notify_log_update()
+                enriched_results = await self._enrich_search_results(adult_results)
+                result.search_results = enriched_results
+                result.status = ScrapeStatus.NEED_SELECTION
+                result.message = "请手动选择匹配的剧集"
+                result.scrape_logs = scrape_logs
+                return result
 
         # Step 4: Get details via API
         detail_step = ScrapeLogStep(name="获取详情", logs=[])
@@ -425,18 +479,28 @@ class ScraperService(ScraperConfigMixin, ScraperMetadataMixin, ScraperMediaMixin
         try:
             year = series.first_air_date.year if series.first_air_date else None
 
+            # 原地整理模式：自动以当前剧集文件夹的上级为 output_dir，内部使用 MOVE
+            if request.link_mode == OrganizeMode.INPLACE:
+                effective_output_dir = _resolve_inplace_output_dir(file_path)
+                effective_link_mode = OrganizeMode.MOVE
+                move_step.logs.append(ScrapeLogEntry(message=f"原地整理：在 {effective_output_dir} 内重命名"))
+            else:
+                effective_output_dir = request.output_dir
+                effective_link_mode = request.link_mode
+
             rename_request = RenameRequest(
                 source_path=file_path,
                 title=series.name,
                 season=season_num,
                 episode=episode_num,
                 year=year,
-                output_dir=request.output_dir,
-                link_mode=request.link_mode,
+                tmdb_id=result.selected_id,
+                output_dir=effective_output_dir,
+                link_mode=effective_link_mode,
             )
 
             move_step.logs.append(ScrapeLogEntry(message=f"源文件: {file_path}"))
-            move_step.logs.append(ScrapeLogEntry(message=f"目标目录: {request.output_dir or '原目录'}"))
+            move_step.logs.append(ScrapeLogEntry(message=f"目标目录: {effective_output_dir or '原目录'}"))
             move_step.logs.append(ScrapeLogEntry(message=f"整理模式: {mode_name}"))
             await notify_log_update()
 
@@ -684,18 +748,28 @@ class ScraperService(ScraperConfigMixin, ScraperMetadataMixin, ScraperMediaMixin
         try:
             year = series.first_air_date.year if series.first_air_date else None
 
+            # 原地整理模式：自动以当前剧集文件夹的上级为 output_dir，内部使用 MOVE
+            if request.link_mode == OrganizeMode.INPLACE:
+                effective_output_dir = _resolve_inplace_output_dir(file_path)
+                effective_link_mode = OrganizeMode.MOVE
+                move_step.logs.append(ScrapeLogEntry(message=f"原地整理：在 {effective_output_dir} 内重命名"))
+            else:
+                effective_output_dir = request.output_dir
+                effective_link_mode = request.link_mode
+
             rename_request = RenameRequest(
                 source_path=file_path,
                 title=series.name,
                 season=request.season,
                 episode=request.episode,
                 year=year,
-                output_dir=request.output_dir,
-                link_mode=request.link_mode,
+                tmdb_id=request.tmdb_id,
+                output_dir=effective_output_dir,
+                link_mode=effective_link_mode,
             )
 
             move_step.logs.append(ScrapeLogEntry(message=f"源文件: {path.name}"))
-            move_step.logs.append(ScrapeLogEntry(message=f"目标目录: {request.output_dir or '原目录'}"))
+            move_step.logs.append(ScrapeLogEntry(message=f"目标目录: {effective_output_dir or '原目录'}"))
             move_step.logs.append(ScrapeLogEntry(message=f"整理模式: {mode_name}"))
             await notify_log_update()
 

@@ -17,6 +17,7 @@ import {
   CopyOutline,
   SwapHorizontalOutline,
   DocumentOutline,
+  FolderOpenOutline,
   ImageOutline,
   FilmOutline,
   TextOutline,
@@ -56,6 +57,7 @@ const linkModeOptions = [
   { label: '复制', value: LinkMode.COPY, icon: CopyOutline, tip: '复制文件，占用双倍空间' },
   { label: '移动', value: LinkMode.MOVE, icon: SwapHorizontalOutline, tip: '移动文件，原位置不保留' },
   { label: '软链接', value: LinkMode.SYMLINK, icon: DocumentOutline, tip: '符号链接，需原文件存在' },
+  { label: '原地整理', value: LinkMode.INPLACE, icon: FolderOpenOutline, tip: '在原文件夹内重命名剧集文件夹和文件，无需指定整理目录' },
 ]
 
 // 当前选中的链接模式信息

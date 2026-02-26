@@ -15,12 +15,13 @@ class TemplateVariable(str, Enum):
     EPISODE = "episode"
     EPISODE_TITLE = "episode_title"
     AIR_DATE = "air_date"
+    TMDB_ID = "tmdb_id"
 
 
 class NamingTemplate(BaseModel):
     """File naming template configuration."""
 
-    series_folder: str = "{title} ({year})"
+    series_folder: str = "{title} ({year}) [tmdbid-{tmdb_id}]"
     season_folder: str = "Season {season}"
     episode_file: str = "{title} - S{season:02d}E{episode:02d} - {episode_title}"
 

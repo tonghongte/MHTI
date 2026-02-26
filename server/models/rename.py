@@ -14,6 +14,7 @@ class RenameRequest(BaseModel):
     episode: int
     episode_title: str | None = None
     year: int | None = None
+    tmdb_id: int | None = None  # TMDB ID，用于文件夹命名
     output_dir: str | None = None  # If None, rename in place
     link_mode: OrganizeMode | None = None  # 整理模式：copy/move/hardlink/symlink
 

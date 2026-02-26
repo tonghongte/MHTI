@@ -24,6 +24,7 @@ const props = defineProps<{
   metadataDir: string
   watchedFolders: WatchedFolder[]
   globalConfig: OrganizeConfig | null
+  isInplace?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -82,7 +83,13 @@ const useGlobalTargetFolder = () => {
 
 <template>
   <div class="path-select-step">
-    <NAlert type="info" :bordered="false" class="step-tip">
+    <NAlert v-if="isInplace" type="success" :bordered="false" class="step-tip">
+      <template #icon>
+        <NIcon :component="InformationCircleOutline" />
+      </template>
+      原地整理模式：将在刮削路径内重命名文件夹和文件，无需指定整理目录
+    </NAlert>
+    <NAlert v-else type="info" :bordered="false" class="step-tip">
       <template #icon>
         <NIcon :component="InformationCircleOutline" />
       </template>
@@ -116,8 +123,8 @@ const useGlobalTargetFolder = () => {
       </div>
     </NFormItem>
 
-    <!-- 整理目录 -->
-    <NFormItem label="整理目录" required>
+    <!-- 整理目录（原地整理模式下隐藏） -->
+    <NFormItem v-if="!isInplace" label="整理目录" required>
       <div class="path-input-group">
         <NInputGroup>
           <NInput

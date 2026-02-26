@@ -48,6 +48,7 @@ const linkModeLabel = computed(() => {
     [LinkMode.COPY]: '复制',
     [LinkMode.MOVE]: '移动',
     [LinkMode.SYMLINK]: '软链接',
+    [LinkMode.INPLACE]: '原地整理',
   }
   return labels[props.formData.link_mode] || props.formData.link_mode
 })
@@ -106,7 +107,7 @@ const formatSize = (bytes?: number) => {
         <NDescriptionsItem label="整理目录">
           <div class="path-value">
             <NIcon :component="FolderOutline" />
-            <span>{{ formData.target_folder || '-' }}</span>
+            <span>{{ formData.link_mode === LinkMode.INPLACE ? '原地整理（与刮削路径相同）' : (formData.target_folder || '-') }}</span>
           </div>
         </NDescriptionsItem>
         <NDescriptionsItem v-if="formData.metadata_dir" label="元数据目录">

@@ -12,6 +12,7 @@ class ParsedInfo(BaseModel):
     episode: int | None = None
     episode_title: str | None = None
     year: int | None = None
+    tmdb_id: int | None = None  # 从路径中提取的 TMDB ID
     is_parsed: bool = False
     confidence: float = 0.0
 
