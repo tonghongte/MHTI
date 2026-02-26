@@ -8,6 +8,7 @@
 
 import logging
 import re
+import shutil
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
@@ -16,6 +17,7 @@ import httpx
 from server.models.emby import ConflictType
 from server.models.history import LogLevel, ScrapeLogEntry, ScrapeLogStep
 from server.models.organize import OrganizeMode
+from server.services.subtitle_service import SUBTITLE_EXTENSIONS
 from server.models.rename import RenameRequest
 from server.models.scraper import (
     BatchScrapeRequest,
@@ -212,6 +214,10 @@ class ScraperService(ScraperConfigMixin, ScraperMetadataMixin, ScraperMediaMixin
                 status=ScrapeStatus.MOVE_FAILED,
                 message=f"文件不存在: {file_path}",
             )
+
+        # 字幕文件走专用轻量流程（不刮削 NFO/图片，仅重命名+移动）
+        if path.suffix.lower() in SUBTITLE_EXTENSIONS:
+            return await self._scrape_subtitle_file(request)
 
         # Step 1: Parse filename
         parse_step = ScrapeLogStep(name="解析文件名", logs=[])
@@ -887,6 +893,107 @@ class ScraperService(ScraperConfigMixin, ScraperMetadataMixin, ScraperMediaMixin
         result.message = "刮削完成"
         result.scrape_logs = scrape_logs
         await notify_log_update()
+        return result
+
+    async def _scrape_subtitle_file(self, request: ScrapeRequest) -> ScrapeResult:
+        """处理孤立字幕文件（无配套视频的字幕）。
+
+        流程：
+        1. 从文件名解析 S01E01 及语言标签
+        2. 从上层文件夹提取 TMDB ID（需父文件夹命名含 [tmdbid-xxx]）
+        3. 通过 TMDB API 获取剧集信息（用于生成正确的文件夹路径）
+        4. 使用与视频相同的重命名模板计算目标路径
+        5. 在文件名中插入语言标签：{stem}.{lang}{ext}
+        6. 移动字幕到目标位置
+
+        Args:
+            request: 刮削请求，source_path 指向字幕文件。
+
+        Returns:
+            ScrapeResult with operation status.
+        """
+        file_path = request.file_path
+        path = Path(file_path)
+
+        result = ScrapeResult(
+            file_path=file_path,
+            status=ScrapeStatus.SUCCESS,
+        )
+
+        # 解析字幕文件名 + 上层文件夹上下文（获取 TMDB ID / 季号）
+        parsed = self.parser_service.parse(path.name, file_path)
+
+        if not parsed.tmdb_id:
+            result.status = ScrapeStatus.NO_MATCH
+            result.message = (
+                "无法从上层文件夹解析 TMDB ID，"
+                "请确保父文件夹名含 [tmdbid-XXXXX] 标记"
+            )
+            return result
+
+        season_num = parsed.season if parsed.season is not None else 1
+        episode_num = parsed.episode if parsed.episode is not None else 1
+
+        # 获取剧集信息（用于生成目标文件夹名）
+        try:
+            series = await self.tmdb_service.get_series_by_api(parsed.tmdb_id)
+            if series is None:
+                result.status = ScrapeStatus.API_FAILED
+                result.message = f"无法获取剧集详情: TMDB ID {parsed.tmdb_id}"
+                return result
+        except (httpx.TimeoutException, httpx.RequestError) as e:
+            result.status = ScrapeStatus.API_FAILED
+            result.message = f"TMDB API 请求失败: {e}"
+            return result
+
+        year = series.first_air_date.year if series.first_air_date else None
+
+        # 计算 output_dir（与视频 INPLACE 逻辑相同）
+        if request.link_mode == OrganizeMode.INPLACE:
+            effective_output_dir = _resolve_inplace_output_dir(file_path)
+        else:
+            effective_output_dir = request.output_dir
+
+        # 用 preview_rename 获取目标路径（忽略原文件扩展名，仅取目标 stem 和文件夹）
+        rename_request = RenameRequest(
+            source_path=file_path,
+            title=series.name,
+            season=season_num,
+            episode=episode_num,
+            year=year,
+            tmdb_id=parsed.tmdb_id,
+            output_dir=effective_output_dir,
+            link_mode=OrganizeMode.MOVE,
+        )
+        preview = self.rename_service.preview_rename(rename_request)
+        dest_folder = Path(preview.dest_path).parent
+        dest_stem = Path(preview.dest_path).stem  # e.g. "XXX - S01E01 - Title"
+
+        # 在文件名中插入语言标签：{stem}.{lang}{ext}
+        language = self.subtitle_service._extract_language(path.name)
+        ext = path.suffix.lower()
+        sub_filename = f"{dest_stem}.{language.value}{ext}" if language else f"{dest_stem}{ext}"
+        dest_path = dest_folder / sub_filename
+
+        # 移动字幕到目标位置
+        try:
+            dest_folder.mkdir(parents=True, exist_ok=True)
+
+            if dest_path.exists() and dest_path.resolve() != path.resolve():
+                result.status = ScrapeStatus.FILE_CONFLICT
+                result.message = f"目标文件已存在: {dest_path}"
+                result.dest_path = str(dest_path)
+                return result
+
+            shutil.move(str(path), str(dest_path))
+            result.dest_path = str(dest_path)
+            result.parsed_season = season_num
+            result.parsed_episode = episode_num
+            result.message = f"字幕处理完成: {sub_filename}"
+        except OSError as e:
+            result.status = ScrapeStatus.MOVE_FAILED
+            result.message = f"字幕移动失败: {e}"
+
         return result
 
     async def batch_scrape(self, request: BatchScrapeRequest) -> BatchScrapeResponse:

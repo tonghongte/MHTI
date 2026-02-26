@@ -1,6 +1,7 @@
 """File scanning service for video file discovery."""
 
 import os
+import re
 from pathlib import Path
 
 from server.core.exceptions import (
@@ -29,6 +30,12 @@ SUPPORTED_VIDEO_EXTENSIONS: set[str] = {
     ".vob",
     ".iso",
 }
+
+# Subtitle extensions to include in scan (only when they have S01E01 naming)
+SUPPORTED_SUBTITLE_EXTENSIONS_FOR_SCAN: set[str] = {".ass", ".ssa", ".srt", ".vtt", ".sub"}
+
+# Episode pattern for subtitle scan inclusion (e.g. S01E01, s1e2)
+_SUBTITLE_EPISODE_RE = re.compile(r"[Ss]\d+[Ee]\d+")
 
 # 禁止访问的系统目录（安全防护）
 BLOCKED_PATHS = {
@@ -122,16 +129,37 @@ class FileService:
         video_files: list[ScannedFile] = []
 
         for item in folder.rglob("*"):
-            if item.is_file() and item.suffix.lower() in SUPPORTED_VIDEO_EXTENSIONS:
-                stat = item.stat()
-                mtime = datetime.fromtimestamp(stat.st_mtime).isoformat()
+            if not item.is_file():
+                continue
+
+            ext = item.suffix.lower()
+            stat = item.stat()
+            mtime = datetime.fromtimestamp(stat.st_mtime).isoformat()
+
+            if ext in SUPPORTED_VIDEO_EXTENSIONS:
                 video_files.append(
                     ScannedFile(
                         filename=item.name,
                         path=str(item.absolute()),
                         size=stat.st_size,
-                        extension=item.suffix.lower(),
+                        extension=ext,
                         mtime=mtime,
+                        is_subtitle=False,
+                    )
+                )
+            elif (
+                ext in SUPPORTED_SUBTITLE_EXTENSIONS_FOR_SCAN
+                and _SUBTITLE_EPISODE_RE.search(item.stem)
+            ):
+                # 仅包含含集号的字幕文件（如 S01E01.chs.ass）
+                video_files.append(
+                    ScannedFile(
+                        filename=item.name,
+                        path=str(item.absolute()),
+                        size=stat.st_size,
+                        extension=ext,
+                        mtime=mtime,
+                        is_subtitle=True,
                     )
                 )
 

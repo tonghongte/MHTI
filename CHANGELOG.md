@@ -27,10 +27,22 @@
   - 镜像标签：`main`（最新主分支）与 `sha-XXXXXXX`（按提交追踪）
   - 使用 `GITHUB_TOKEN`，无需额外配置 Secrets
 
+### 修复
+
+- 🔤 **字幕文件未被关联的问题**：修复 `S01E01.chs.assfonts.ass` 等多段命名字幕无法被识别的 bug
+  - `_get_base_name` 现在会从右往左连续剥除语言码和描述标签（`assfonts`/`sdh`/`hi`/…），正确返回 `S01E01`
+  - `_extract_language` 同步修复，即使语言码不在最后一段也能正确识别
+  - `_names_match` 新增集号 fallback：若视频名与字幕 base name 均含 `SxxExx`，则以集号匹配
+  - 刮削时传入 `season`/`episode` 作为最后保障，即使视频原始名称不含集号也能匹配字幕
+- 📂 **孤立字幕文件无法处理**：修复影片已移走后字幕永久孤立的问题
+  - 文件扫描现在也纳入含 `S01E01` 命名的字幕文件（`.ass`/`.srt`/`.ssa`/`.vtt`/`.sub`），标记 `is_subtitle: true`
+  - 刮削时自动检测字幕扩展名，走专用轻量流程：读取上层文件夹 TMDB ID → 获取剧集信息 → 按命名模板计算目标路径 → 插入语言标签后移动
+
 ### 变更
 
 - 文件整理模式新增 `inplace` 枚举值，原有 `copy`/`move`/`hardlink`/`symlink` 不受影响
 - `RenameRequest` 新增 `tmdb_id` 字段，命名模板支持 `{tmdb_id}` 变量
+- `ScannedFile` 新增 `is_subtitle: bool` 字段
 
 ### 计划中
 

@@ -4,13 +4,14 @@ from pydantic import BaseModel
 
 
 class ScannedFile(BaseModel):
-    """Information about a scanned video file."""
+    """Information about a scanned video or subtitle file."""
 
     filename: str
     path: str
     size: int
     extension: str
     mtime: str | None = None  # 修改时间 ISO 格式
+    is_subtitle: bool = False  # True 表示该文件是孤立字幕文件（无对应视频）
 
 
 class ScanRequest(BaseModel):
