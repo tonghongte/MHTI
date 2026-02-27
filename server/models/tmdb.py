@@ -26,6 +26,7 @@ class TMDBSearchResponse(BaseModel):
     query: str
     total_results: int
     results: list[TMDBSearchResult]
+    effective_query: str | None = None  # 实际使用的搜索词（模糊搜索时可能与 query 不同）
 
 
 class TMDBEpisode(BaseModel):

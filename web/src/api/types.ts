@@ -171,6 +171,7 @@ export interface TMDBSearchResponse {
   query: string
   total_results: number
   results: TMDBSearchResult[]
+  effective_query?: string | null  // 模糊搜索时实际使用的搜索词
 }
 
 export interface TMDBEpisode {

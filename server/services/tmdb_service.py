@@ -1,5 +1,6 @@
 """TMDB service for API-based metadata retrieval."""
 
+import re
 from datetime import date, datetime
 
 import httpx
@@ -339,6 +340,90 @@ class TMDBService:
             raise
         except (httpx.TimeoutException, httpx.RequestError):
             raise
+
+    def _generate_fallback_queries(self, query: str) -> list[str]:
+        """
+        生成模糊搜索候选词列表，用于在原始查询无结果时尝试。
+
+        针对日本里番常见的打码标题（如 〇〇〇する七人の孕女），
+        通过多种策略提取有效关键词。
+        """
+        candidates: list[str] = []
+        seen: set[str] = {query}
+
+        def add(q: str) -> None:
+            q = re.sub(r"\s+", " ", q).strip()
+            if q and q not in seen and len(q) >= 2:
+                candidates.append(q)
+                seen.add(q)
+
+        # 策略1: 去除 〇/○ 打码字符
+        q1 = re.sub(r"[〇○]+", "", query)
+        add(q1)
+
+        # 策略2: 去除括号内容 [ ] ( ) 【 】 （ ）
+        q2 = re.sub(r"[\[【（(][^\]】）)]*[\]】）)]", " ", query)
+        add(q2)
+
+        # 策略3: 同时去除 〇 和括号内容
+        q3 = re.sub(r"[〇○]+", "", q2)
+        add(q3)
+
+        # 策略4: 去除句首的 〇 序列及紧随其后的平假名动词
+        # 例如 "〇〇〇する七人の孕女" → "七人の孕女"
+        q4 = re.sub(r"^[〇○]+[ぁ-ん]*", "", query)
+        add(q4)
+
+        # 策略5: 去除日文卷/话标记 (下巻/上巻/前編/後編 等)
+        volume_pat = (
+            r"(下[巻卷]|上[巻卷]|前[編篇]|後[編篇]|完結[編篇]"
+            r"|第[一二三四五六七八九十百千\d]+[巻話編章]"
+            r"|[Vv]ol\.?\s*\d+)"
+        )
+        q5 = re.sub(volume_pat, "", query).strip()
+        add(q5)
+
+        # 策略6: 综合策略 — 去除 〇 + 卷标记 + 括号
+        q6 = re.sub(r"[〇○]+", "", q5)
+        q6 = re.sub(r"[\[【（(][^\]】）)]*[\]】）)]", " ", q6)
+        q6 = re.sub(r"\s+", " ", q6).strip()
+        add(q6)
+
+        return candidates
+
+    async def search_series_with_fallback(
+        self,
+        query: str,
+        language: str | None = None,
+    ) -> TMDBSearchResponse:
+        """
+        模糊搜索 TV 剧集：原始查询无结果时自动尝试简化后的候选词。
+
+        Args:
+            query: 原始搜索词
+            language: 结果语言
+
+        Returns:
+            TMDBSearchResponse，effective_query 字段标注实际使用的搜索词。
+        """
+        # 先用原始词搜索
+        result = await self.search_series_by_api(query, language)
+        if result.results:
+            return result
+
+        # 原始词无结果，逐一尝试候选词
+        for candidate in self._generate_fallback_queries(query):
+            fallback = await self.search_series_by_api(candidate, language)
+            if fallback.results:
+                return TMDBSearchResponse(
+                    query=query,
+                    total_results=fallback.total_results,
+                    results=fallback.results,
+                    effective_query=candidate,
+                )
+
+        # 所有候选词均无结果，返回空
+        return TMDBSearchResponse(query=query, total_results=0, results=[])
 
     async def get_series_by_api(
         self,

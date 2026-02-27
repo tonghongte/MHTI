@@ -32,6 +32,7 @@ router = APIRouter(prefix="/api/tmdb", tags=["tmdb"], dependencies=[Depends(requ
 async def search_tv(
     q: str = Query(..., min_length=1, description="Search query"),
     language: str = Query("zh-CN", description="Language for results"),
+    fuzzy: bool = Query(False, description="启用模糊搜索：原始词无结果时自动尝试简化后的候选词"),
     tmdb_service: TMDBService = Depends(get_tmdb_service),
 ) -> TMDBSearchResponse:
     """
@@ -40,6 +41,7 @@ async def search_tv(
     Args:
         q: Search query string
         language: Language for results (default: zh-CN)
+        fuzzy: Enable fuzzy fallback when no results found
 
     Returns:
         Search results with matching TV series.
@@ -49,6 +51,8 @@ async def search_tv(
         TMDBTimeoutError: 请求超时 (408)
         TMDBConnectionError: 连接失败 (502)
     """
+    if fuzzy:
+        return await tmdb_service.search_series_with_fallback(query=q, language=language)
     return await tmdb_service.search_series_by_api(query=q, language=language)
 
 

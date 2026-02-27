@@ -72,6 +72,7 @@ const manualSearching = ref(false)
 const manualSearchResults = ref<TMDBSearchResult[]>([])
 const manualHasSearched = ref(false)
 const manualSelectedSeries = ref<TMDBSeries | null>(null)
+const manualEffectiveQuery = ref<string | null>(null) // 模糊搜索实际使用的词
 
 // 是否为重试模式
 const isRetryMode = computed(() => props.mode === 'retry')
@@ -268,7 +269,7 @@ const goBackToEmbyStep1 = () => {
   loadedSeasons.value = []
 }
 
-// 手动匹配：搜索（只显示成人内容）
+// 手动匹配：搜索（只显示成人内容，启用模糊搜索回退）
 const handleManualSearch = async () => {
   if (!manualSearchQuery.value.trim()) {
     message.warning('请输入搜索关键词')
@@ -277,10 +278,13 @@ const handleManualSearch = async () => {
 
   manualSearching.value = true
   manualHasSearched.value = true
+  manualEffectiveQuery.value = null
   try {
-    const response = await tmdbApi.search(manualSearchQuery.value)
-    // 只显示成人内容
+    const response = await tmdbApi.search(manualSearchQuery.value, true)
     manualSearchResults.value = response.results.filter(r => r.adult)
+    if (response.effective_query && response.effective_query !== manualSearchQuery.value) {
+      manualEffectiveQuery.value = response.effective_query
+    }
   } catch (error) {
     message.error('搜索失败')
     console.error(error)
@@ -412,10 +416,13 @@ watch(() => props.show, (show) => {
     fileAction.value = 'skip'
     embyAction.value = 'force'
     loadedSeasons.value = []
-    manualSearchQuery.value = ''
     manualSearchResults.value = []
     manualHasSearched.value = false
     manualSelectedSeries.value = null
+    manualEffectiveQuery.value = null
+    // 预填充解析出的标题作为搜索词
+    const parsedTitle = props.record.conflict_data?.parsed_title as string | undefined
+    manualSearchQuery.value = parsedTitle || ''
     // 重置搜索状态
     showTmdbSearchModal.value = false
     tmdbSearchQuery.value = ''
@@ -612,6 +619,9 @@ const getYear = (date: string | null) => {
                   搜索
                 </NButton>
               </NSpace>
+              <div v-if="manualEffectiveQuery" class="effective-query-hint">
+                实际搜索词：{{ manualEffectiveQuery }}
+              </div>
 
               <NSpin :show="manualSearching || loadingSeasons">
                 <div style="min-height: 200px; max-height: 400px; overflow-y: auto">
@@ -1089,6 +1099,9 @@ const getYear = (date: string | null) => {
                   搜索
                 </NButton>
               </NSpace>
+              <div v-if="manualEffectiveQuery" class="effective-query-hint">
+                实际搜索词：{{ manualEffectiveQuery }}
+              </div>
 
               <NSpin :show="manualSearching || loadingSeasons">
                 <div style="min-height: 200px; max-height: 400px; overflow-y: auto">
@@ -1358,6 +1371,12 @@ const getYear = (date: string | null) => {
   border-radius: 10px;
   color: #ef4444;
   font-size: 14px;
+}
+
+.effective-query-hint {
+  font-size: 12px;
+  color: var(--n-text-color-3);
+  padding: 2px 4px;
 }
 
 .section-hint {
