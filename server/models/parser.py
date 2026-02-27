@@ -15,6 +15,7 @@ class ParsedInfo(BaseModel):
     tmdb_id: int | None = None  # 从路径中提取的 TMDB ID
     is_parsed: bool = False
     confidence: float = 0.0
+    matched_patterns: list[str] = []
 
 
 class ParseRequest(BaseModel):

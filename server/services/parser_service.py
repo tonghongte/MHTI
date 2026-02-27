@@ -53,6 +53,7 @@ class ParserService:
             tmdb_id=ctx.tmdb_id,
             is_parsed=ctx.episode is not None or ctx.series_name is not None,
             confidence=ctx.confidence,
+            matched_patterns=ctx.matched_patterns,
         )
 
     def parse_batch(
