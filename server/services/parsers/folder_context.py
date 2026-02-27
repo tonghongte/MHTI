@@ -34,6 +34,15 @@ _BRACKET_CLEAN_PATTERNS = [
     re.compile(r"\([^\)]*\)"),                        # 其余 () 内容
 ]
 
+# 文件夹名称中的卷/副标题标记（出现时截断，后面视为副标题）
+_VOLUME_SPLIT_PATTERN = re.compile(
+    r"\s+"                                  # 前面必须有空白（独立词）
+    r"(下[巻卷]|上[巻卷]|前[編篇]|後[編篇]|完結[編篇]"
+    r"|第[一二三四五六七八九十百千\d]+[巻話編章]"
+    r"|[Vv]ol\.?\s*\d+"
+    r")"
+)
+
 
 def _detect_series_folder(filepath: str) -> tuple[Path | None, int | None]:
     """从文件路径向上检测剧集根文件夹和季号。
@@ -111,8 +120,13 @@ class FolderContextPlugin(ParserPlugin):
         #    SeriesNamePlugin 从文件名提取，此处作为补充（当文件名无剧名时）
         if ctx.series_name is None:
             name = folder_name
+            # 先去除括号内容
             for pattern in _BRACKET_CLEAN_PATTERNS:
                 name = pattern.sub("", name)
+            # 在第一个卷号/副标题标记处截断（例如 "○○ 下巻 当主の花嫁" → "○○"）
+            vol_match = _VOLUME_SPLIT_PATTERN.search(name)
+            if vol_match:
+                name = name[:vol_match.start()]
             name = re.sub(r"\s+", " ", name).strip(" -_.")
             if name and len(name) >= 2:
                 ctx.series_name = name

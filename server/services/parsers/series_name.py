@@ -89,12 +89,12 @@ class SeriesNamePlugin(ParserPlugin):
     name = "series_name"
 
     def parse(self, ctx: ParseContext) -> ParseContext:
-        # 从清洗后的文件名提取
-        name = self._extract_from_cleaned(ctx.cleaned_filename)
-
-        if name:
-            ctx.series_name = name
-            ctx.matched_patterns.append(f"{self.name}:extracted")
+        # 若剧名已由上层文件夹上下文设定，不从文件名覆盖
+        if "folder_context:series_name" not in ctx.matched_patterns:
+            name = self._extract_from_cleaned(ctx.cleaned_filename)
+            if name:
+                ctx.series_name = name
+                ctx.matched_patterns.append(f"{self.name}:extracted")
 
         # 提取年份
         year = self._extract_year(ctx.original_filename)
