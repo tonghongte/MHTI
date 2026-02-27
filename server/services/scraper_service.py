@@ -65,6 +65,38 @@ def _get_mode_name(mode: OrganizeMode | None) -> str:
     return _MODE_NAMES.get(mode, "移动")
 
 
+# 视频文件扩展名（用于文件夹排序集号判断）
+_VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".wmv", ".mov", ".flv", ".rmvb", ".ts", ".m2ts", ".webm", ".iso", ".m4v"}
+
+# 表示"强"集数标记的 matched_pattern 前缀：由这些 pattern 确定的集号不视为品番尾号
+_STRONG_EPISODE_PREFIXES = (
+    "episode_standard:season_episode",   # S01E01
+    "episode_standard:episode_only",      # EP01 / E01 / [01]
+    "episode_japanese:",                  # 第一話 / 其の一 等
+    "episode_chinese:",                   # 第一集 等
+)
+
+
+def _get_file_order_episode(file_path: str) -> int | None:
+    """按文件名字母顺序确定当前文件在同目录视频文件中的位置（1-based）。
+
+    用于当集号无法从文件名中可靠提取时（例如品番尾号），以文件排序代替。
+    """
+    path = Path(file_path)
+    parent = path.parent
+    try:
+        siblings = sorted(
+            p for p in parent.iterdir()
+            if p.is_file() and p.suffix.lower() in _VIDEO_EXTENSIONS
+        )
+        for idx, sibling in enumerate(siblings, start=1):
+            if sibling.name == path.name:
+                return idx
+    except OSError:
+        pass
+    return None
+
+
 def _resolve_inplace_output_dir(file_path: str) -> str:
     """为原地整理模式计算 output_dir。
 
@@ -223,6 +255,21 @@ class ScraperService(ScraperConfigMixin, ScraperMetadataMixin, ScraperMediaMixin
         parse_step = ScrapeLogStep(name="解析文件名", logs=[])
         parse_step.logs.append(ScrapeLogEntry(message=f"视频文件路径: {file_path}"))
         parsed = self.parser_service.parse(path.name, file_path)
+
+        # 若剧名来自上层文件夹（品番文件），且集号仅由品番尾号确定（非标准集数标记），
+        # 则改用文件名字母顺序作为集号
+        if "folder_context:series_name" in parsed.matched_patterns:
+            has_strong_episode = any(
+                p.startswith(prefix) for p in parsed.matched_patterns
+                for prefix in _STRONG_EPISODE_PREFIXES
+            )
+            if not has_strong_episode:
+                order = _get_file_order_episode(file_path)
+                if order is not None:
+                    parsed.episode = order
+                    parse_step.logs.append(ScrapeLogEntry(
+                        message=f"集号由文件夹排序确定: E{order:02d}（文件名含品番尾号，非标准集数标记）"
+                    ))
 
         result = ScrapeResult(
             file_path=file_path,

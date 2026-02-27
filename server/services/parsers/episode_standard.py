@@ -15,8 +15,8 @@ STANDARD_PATTERNS = [
     (r"[.\s_-][Ee][Pp]?(\d{1,3})(?:[.\s_-]|$)", "episode_only"),
     # [01] 格式（仅集数）
     (r"\[(\d{1,3})\]", "episode_only"),
-    # 末尾数字: - 01. 或 .01.
-    (r"[.\s_-](\d{1,3})[.\s_-]?(?:\[|$|\.(?:mp4|mkv|avi))", "episode_only"),
+    # 末尾数字: - 01. 或 .01.（可能是品番尾号，用 trailing_number 标记以便后续判断）
+    (r"[.\s_-](\d{1,3})[.\s_-]?(?:\[|$|\.(?:mp4|mkv|avi))", "trailing_number"),
 ]
 
 
@@ -44,7 +44,7 @@ class EpisodeStandardPlugin(ParserPlugin):
                 if pattern_type == "season_episode":
                     ctx.season = int(match.group(1))
                     ctx.episode = int(match.group(2))
-                elif pattern_type == "episode_only":
+                elif pattern_type in ("episode_only", "trailing_number"):
                     ctx.episode = int(match.group(1))
 
                 if ctx.episode:
