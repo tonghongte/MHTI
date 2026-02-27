@@ -271,6 +271,24 @@ class ScraperService(ScraperConfigMixin, ScraperMetadataMixin, ScraperMediaMixin
                 result.search_results = adult_results
                 search_step.logs.append(ScrapeLogEntry(message=f"找到 {len(adult_results)} 个匹配结果"))
                 await notify_log_update()
+
+                # 原始词无成人结果时，逐一尝试模糊候选词
+                if not adult_results:
+                    for candidate in self.tmdb_service._generate_fallback_queries(parsed.series_name):
+                        search_step.logs.append(ScrapeLogEntry(message=f"尝试候选词: {candidate}"))
+                        await notify_log_update()
+                        try:
+                            fallback = await self.tmdb_service.search_series_by_api(candidate)
+                            adult_fallback = [r for r in fallback.results if r.adult]
+                            search_step.logs.append(ScrapeLogEntry(message=f"找到 {len(adult_fallback)} 个匹配结果"))
+                            await notify_log_update()
+                            if adult_fallback:
+                                adult_results = adult_fallback
+                                result.search_results = adult_results
+                                break
+                        except (httpx.TimeoutException, httpx.RequestError):
+                            break
+
             except httpx.TimeoutException:
                 search_step.logs.append(ScrapeLogEntry(message="TMDB 搜索超时", level=LogLevel.ERROR))
                 search_step.completed = False
