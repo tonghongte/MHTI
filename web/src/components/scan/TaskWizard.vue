@@ -58,8 +58,8 @@ const advancedSettings = ref<ManualJobAdvancedSettings | null>(null)
 
 // 表单数据
 const formData = ref({
-  scan_path: '',
-  target_folder: '',
+  scan_path: '/media',
+  target_folder: '/output',
   metadata_dir: '',
   link_mode: LinkMode.HARDLINK as LinkMode,
   delete_empty_parent: true,
