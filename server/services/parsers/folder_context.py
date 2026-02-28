@@ -67,9 +67,16 @@ def _detect_series_folder(filepath: str) -> tuple[Path | None, int | None]:
         # 父级是 Season 文件夹，再向上
         candidate = parent.parent
         if candidate.name:  # 确保还有上层
+            # 若候选剧集文件夹本身是文件系统根目录的直接子目录，则视为顶层挂载点，跳过
+            if candidate.parent == Path(candidate.anchor):
+                return None, None
             return candidate, season_num
         return None, None
     else:
+        # 若父目录是文件系统根目录的直接子目录（如 /media、/downloads），
+        # 说明文件在顶层目录下，应使用文件名而非目录名作为剧集来源
+        if parent.parent == Path(parent.anchor):
+            return None, None
         return parent, None
 
 
