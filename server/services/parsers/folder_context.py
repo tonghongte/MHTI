@@ -43,6 +43,36 @@ _VOLUME_SPLIT_PATTERN = re.compile(
     r")"
 )
 
+# 从卷标记文本中提取集号
+_VOLUME_FIXED_MAP = {
+    "上": 1, "前": 1,
+    "下": 2, "後": 2,
+}
+
+
+def _episode_from_volume_marker(vol_text: str) -> int | None:
+    """从卷标记文本中提取集号。
+
+    支持：
+      Vol.N / vol N  → N
+      上巻/上卷/前編/前篇 → 1
+      下巻/下卷/後編/後篇 → 2
+      第N巻/第N話/第N編/第N章 → N（仅阿拉伯数字）
+    """
+    # Vol.N
+    vol_num = re.search(r"[Vv]ol\.?\s*(\d+)", vol_text)
+    if vol_num:
+        return int(vol_num.group(1))
+    # 第N巻/話/編/章（仅数字）
+    dai_num = re.search(r"第(\d+)[巻話編章]", vol_text)
+    if dai_num:
+        return int(dai_num.group(1))
+    # 上/前 → 1，下/後 → 2
+    for kanji, ep in _VOLUME_FIXED_MAP.items():
+        if vol_text.startswith(kanji):
+            return ep
+    return None
+
 
 def _detect_series_folder(filepath: str) -> tuple[Path | None, int | None]:
     """从文件路径向上检测剧集根文件夹和季号。
@@ -130,9 +160,15 @@ class FolderContextPlugin(ParserPlugin):
             # 先去除括号内容
             for pattern in _BRACKET_CLEAN_PATTERNS:
                 name = pattern.sub("", name)
-            # 在第一个卷号/副标题标记处截断（例如 "○○ 下巻 当主の花嫁" → "○○"）
+            # 在第一个卷号/副标题标记处截断，并提取集号
+            # 例如 "Rune's Pharmacy Vol.2 ..." → series="Rune's Pharmacy", episode=2
             vol_match = _VOLUME_SPLIT_PATTERN.search(name)
             if vol_match:
+                if ctx.episode is None:
+                    ep_from_vol = _episode_from_volume_marker(vol_match.group(1))
+                    if ep_from_vol is not None:
+                        ctx.episode = ep_from_vol
+                        ctx.matched_patterns.append(f"{self.name}:episode")
                 name = name[:vol_match.start()]
             name = re.sub(r"\s+", " ", name).strip(" -_.")
 
