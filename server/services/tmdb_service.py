@@ -393,11 +393,13 @@ class TMDBService:
         q7 = re.sub(r"^(?:OVA|OAD|ONA)\s+", "", query, flags=re.I)
         add(q7)
 
-        # 策略8: 去除末尾的集号数字（例如 "OVA ピスはめ！ 1" → "OVA ピスはめ！"）
-        q8 = re.sub(r"\s+\d+\s*$", "", query).strip()
+        # 策略8: 去除末尾的集号标记（纯数字 或 ＃N/#N）
+        # 例如 "OVA ピスはめ！ 1" → "OVA ピスはめ！"
+        # 例如 "OVA メガネnoメガミ ＃1" → "OVA メガネnoメガミ"
+        q8 = re.sub(r"(?:\s+[＃#♯]\s*|\s+)\d+\s*$", "", query).strip()
         add(q8)
 
-        # 策略9: 同时去除 OVA 前缀和末尾数字（例如 "OVA ピスはめ！ 1" → "ピスはめ！"）
+        # 策略9: 同时去除 OVA 前缀和末尾集号（例如 "OVA メガネnoメガミ ＃1" → "メガネnoメガミ"）
         q9 = re.sub(r"^(?:OVA|OAD|ONA)\s+", "", q8, flags=re.I)
         add(q9)
 
