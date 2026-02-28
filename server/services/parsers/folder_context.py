@@ -128,6 +128,16 @@ class FolderContextPlugin(ParserPlugin):
             if vol_match:
                 name = name[:vol_match.start()]
             name = re.sub(r"\s+", " ", name).strip(" -_.")
+
+            # 提取文件夹名末尾的数字作为集号（例如 "OVA ピスはめ！ 1" → series="OVA ピスはめ！", episode=1）
+            trailing_num_match = re.search(r"\s+(\d{1,3})\s*$", name)
+            if trailing_num_match:
+                ep_num = int(trailing_num_match.group(1))
+                name = name[:trailing_num_match.start()].strip(" -_.")
+                if ctx.episode is None:
+                    ctx.episode = ep_num
+                    ctx.matched_patterns.append(f"{self.name}:episode")
+
             if name and len(name) >= 2:
                 ctx.series_name = name
                 ctx.matched_patterns.append(f"{self.name}:series_name")

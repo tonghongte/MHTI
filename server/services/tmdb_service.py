@@ -389,6 +389,18 @@ class TMDBService:
         q6 = re.sub(r"\s+", " ", q6).strip()
         add(q6)
 
+        # 策略7: 去除 OVA/OAD/ONA 前缀（例如 "OVA ピスはめ！ 1" → "ピスはめ！ 1"）
+        q7 = re.sub(r"^(?:OVA|OAD|ONA)\s+", "", query, flags=re.I)
+        add(q7)
+
+        # 策略8: 去除末尾的集号数字（例如 "OVA ピスはめ！ 1" → "OVA ピスはめ！"）
+        q8 = re.sub(r"\s+\d+\s*$", "", query).strip()
+        add(q8)
+
+        # 策略9: 同时去除 OVA 前缀和末尾数字（例如 "OVA ピスはめ！ 1" → "ピスはめ！"）
+        q9 = re.sub(r"^(?:OVA|OAD|ONA)\s+", "", q8, flags=re.I)
+        add(q9)
+
         return candidates
 
     async def search_series_with_fallback(

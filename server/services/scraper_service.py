@@ -74,6 +74,7 @@ _STRONG_EPISODE_PREFIXES = (
     "episode_standard:episode_only",      # EP01 / E01 / [01]
     "episode_japanese:",                  # 第一話 / 其の一 等
     "episode_chinese:",                   # 第一集 等
+    "folder_context:episode",             # 文件夹名末尾数字（如 "OVA ピスはめ！ 1"）
 )
 
 
