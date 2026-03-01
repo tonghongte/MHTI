@@ -59,6 +59,7 @@ const selectedSeriesName = ref('')
 const selectedSeason = ref<number>(1)
 const selectedEpisode = ref<number | null>(null)
 const fileAction = ref<'overwrite' | 'skip' | 'rename'>('skip')
+const fileConflictStep = ref(1)  // 1=选择处理方式, 2=选择季/集
 const embyAction = ref<'skip' | 'force' | 'change'>('force')
 const embyStep = ref(1)  // 1=选择处理方式, 2=选择季/集
 
@@ -91,6 +92,11 @@ const modalTitle = computed(() => {
   // 两步流程时显示步骤
   if (props.record.conflict_type === 'need_selection') {
     return step.value === 1 ? '选择匹配剧集' : `选择季/集 - ${selectedSeriesName.value}`
+  }
+
+  // 文件冲突两步流程
+  if (props.record.conflict_type === 'file_conflict') {
+    return fileConflictStep.value === 1 ? '文件冲突' : `更改集数 - ${seriesInfo.value?.name || ''}`
   }
 
   // Emby 冲突两步流程
@@ -269,6 +275,44 @@ const goBackToEmbyStep1 = () => {
   loadedSeasons.value = []
 }
 
+// 文件冲突：进入选择季/集步骤
+const enterFileConflictSeasonSelect = async () => {
+  const tmdbId = props.record?.conflict_data?.tmdb_id as number | null
+  if (!tmdbId) {
+    message.error('缺少 TMDB ID')
+    return
+  }
+
+  loadingSeasons.value = true
+  try {
+    const series = await tmdbApi.getSeries(tmdbId)
+    loadedSeasons.value = series.seasons || []
+
+    // 默认选中当前季，若有的话
+    const currentSeason = props.record?.conflict_data?.season as number | null
+    const validSeasons = loadedSeasons.value.filter(s => s.season_number > 0)
+    const target = currentSeason ? validSeasons.find(s => s.season_number === currentSeason) : null
+    selectedSeason.value = target?.season_number ?? validSeasons[0]?.season_number ?? 1
+    selectedEpisode.value = null
+
+    fileConflictStep.value = 2
+  } catch (error: unknown) {
+    const err = error as { response?: { data?: { error?: string; message?: string } } }
+    const errorMsg = err.response?.data?.message || err.response?.data?.error || '加载剧集信息失败'
+    message.error(errorMsg)
+    console.error(error)
+  } finally {
+    loadingSeasons.value = false
+  }
+}
+
+// 文件冲突：返回上一步
+const goBackToFileConflictStep1 = () => {
+  fileConflictStep.value = 1
+  selectedEpisode.value = null
+  loadedSeasons.value = []
+}
+
 // 手动匹配：搜索（只显示成人内容，启用模糊搜索回退）
 const handleManualSearch = async () => {
   if (!manualSearchQuery.value.trim()) {
@@ -408,6 +452,7 @@ watch(() => props.show, (show) => {
   if (show && props.record) {
     step.value = 1
     embyStep.value = 1
+    fileConflictStep.value = 1
     manualStep.value = 1
     selectedTmdbId.value = null
     selectedSeriesName.value = ''
@@ -521,6 +566,13 @@ const handleSubmit = async () => {
     }
   }
 
+  if (conflictType === 'file_conflict' && fileConflictStep.value === 2) {
+    if (!selectedEpisode.value) {
+      message.warning('请选择一集')
+      return
+    }
+  }
+
   loading.value = true
   try {
     let season = selectedSeason.value
@@ -530,8 +582,15 @@ const handleSubmit = async () => {
       episode = parsedSeasonEpisode.value.episode
     }
 
+    // 文件冲突：更改集数
+    let fileActionValue: 'overwrite' | 'skip' | 'rename' | 'change_episode' | null = conflictType === 'file_conflict' ? fileAction.value : null
+    if (conflictType === 'file_conflict' && fileConflictStep.value === 2) {
+      fileActionValue = 'change_episode'
+      season = selectedSeason.value
+      episode = selectedEpisode.value || 1
+    }
+
     // Emby 冲突处理
-    let fileActionValue = conflictType === 'file_conflict' ? fileAction.value : null
     if (conflictType === 'emby_conflict') {
       // 步骤2表示选择了更改季/集
       const isChangeMode = embyStep.value === 2
@@ -545,8 +604,8 @@ const handleSubmit = async () => {
     await historyApi.resolveConflict(props.record.id, {
       conflict_type: conflictType,
       tmdb_id: selectedTmdbId.value,
-      season: conflictType === 'emby_conflict' ? season : season,
-      episode: conflictType === 'emby_conflict' ? episode : episode,
+      season,
+      episode,
       file_action: fileActionValue,
     })
     message.success('处理成功')
@@ -942,32 +1001,113 @@ const getYear = (date: string | null) => {
 
           <!-- 文件冲突 -->
           <template v-else-if="record.conflict_type === 'file_conflict'">
-            <div class="conflict-options">
-              <div class="option-title">选择处理方式</div>
-              <NRadioGroup v-model:value="fileAction" class="radio-group">
-                <div class="radio-option" :class="{ active: fileAction === 'skip' }" @click="fileAction = 'skip'">
-                  <NRadio value="skip" />
-                  <div class="option-content">
-                    <span class="option-label">跳过</span>
-                    <span class="option-desc">保留现有文件，不做任何操作</span>
+            <!-- 步骤1: 选择处理方式 -->
+            <template v-if="fileConflictStep === 1">
+              <div class="conflict-options">
+                <div class="option-title">选择处理方式</div>
+                <NSpin :show="loadingSeasons">
+                  <div class="radio-group">
+                    <div class="radio-option" :class="{ active: fileAction === 'skip' }" @click="fileAction = 'skip'">
+                      <NRadio value="skip" :checked="fileAction === 'skip'" @click.stop />
+                      <div class="option-content">
+                        <span class="option-label">跳过</span>
+                        <span class="option-desc">保留现有文件，不做任何操作</span>
+                      </div>
+                    </div>
+                    <div class="radio-option" :class="{ active: fileAction === 'overwrite' }" @click="fileAction = 'overwrite'">
+                      <NRadio value="overwrite" :checked="fileAction === 'overwrite'" @click.stop />
+                      <div class="option-content">
+                        <span class="option-label">覆盖</span>
+                        <span class="option-desc">替换现有文件</span>
+                      </div>
+                    </div>
+                    <div class="radio-option" :class="{ active: fileAction === 'rename' }" @click="fileAction = 'rename'">
+                      <NRadio value="rename" :checked="fileAction === 'rename'" @click.stop />
+                      <div class="option-content">
+                        <span class="option-label">重命名</span>
+                        <span class="option-desc">添加序号保存为新文件</span>
+                      </div>
+                    </div>
+                    <div class="radio-option clickable" @click="enterFileConflictSeasonSelect">
+                      <NRadio :checked="false" value="change_episode" @click.stop />
+                      <div class="option-content">
+                        <span class="option-label">更改集数</span>
+                        <span class="option-desc">选择其他集数进行刮削</span>
+                      </div>
+                      <div class="arrow-hint">
+                        <NIcon :component="ArrowBackOutline" :size="16" style="transform: rotate(180deg)" />
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div class="radio-option" :class="{ active: fileAction === 'overwrite' }" @click="fileAction = 'overwrite'">
-                  <NRadio value="overwrite" />
-                  <div class="option-content">
-                    <span class="option-label">覆盖</span>
-                    <span class="option-desc">替换现有文件</span>
+                </NSpin>
+              </div>
+            </template>
+
+            <!-- 步骤2: 选择季/集 -->
+            <template v-else-if="fileConflictStep === 2">
+              <div class="step-header">
+                <NButton quaternary size="small" @click="goBackToFileConflictStep1">
+                  <template #icon><NIcon :component="ArrowBackOutline" /></template>
+                  返回
+                </NButton>
+              </div>
+
+              <div v-if="seasons.length" class="season-picker">
+                <NTabs v-model:value="selectedSeason" type="segment" size="small">
+                  <NTabPane
+                    v-for="season in seasons"
+                    :key="season.season_number"
+                    :name="season.season_number"
+                    :tab="`第 ${season.season_number} 季`"
+                  />
+                </NTabs>
+
+                <NScrollbar style="max-height: 40vh; margin-top: 16px">
+                  <div v-if="currentSeasonEpisodes.length" class="episodes-grid">
+                    <div
+                      v-for="ep in currentSeasonEpisodes"
+                      :key="ep.episode_number"
+                      class="episode-card"
+                      :class="{ selected: selectedEpisode === ep.episode_number }"
+                      @click="selectEpisode(ep)"
+                    >
+                      <div class="still-wrapper">
+                        <NImage
+                          v-if="ep.still_path"
+                          :src="getImageUrl(ep.still_path)!"
+                          object-fit="cover"
+                          preview-disabled
+                          lazy
+                          class="still"
+                        />
+                        <div v-else class="no-still">E{{ ep.episode_number }}</div>
+                        <div class="ep-badge">E{{ String(ep.episode_number).padStart(2, '0') }}</div>
+                        <div v-if="selectedEpisode === ep.episode_number" class="selected-overlay">
+                          <NIcon :component="CheckmarkOutline" :size="24" />
+                        </div>
+                      </div>
+                      <div class="ep-info">
+                        <div class="ep-title">{{ ep.name || `第 ${ep.episode_number} 集` }}</div>
+                        <div v-if="ep.air_date" class="ep-date">{{ ep.air_date }}</div>
+                      </div>
+                    </div>
                   </div>
+                  <EmptyState v-else title="该季暂无可用集数" />
+                </NScrollbar>
+              </div>
+
+              <!-- 无季信息时手动输入 -->
+              <div v-else class="manual-input">
+                <div class="input-group">
+                  <label>季</label>
+                  <NInputNumber v-model:value="selectedSeason" :min="1" :max="99" />
                 </div>
-                <div class="radio-option" :class="{ active: fileAction === 'rename' }" @click="fileAction = 'rename'">
-                  <NRadio value="rename" />
-                  <div class="option-content">
-                    <span class="option-label">重命名</span>
-                    <span class="option-desc">添加序号保存为新文件</span>
-                  </div>
+                <div class="input-group">
+                  <label>集</label>
+                  <NInputNumber v-model:value="selectedEpisode" :min="1" :max="9999" />
                 </div>
-              </NRadioGroup>
-            </div>
+              </div>
+            </template>
           </template>
 
           <!-- Emby 冲突 -->

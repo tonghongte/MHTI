@@ -281,7 +281,7 @@ export interface ResolveConflictRequest {
   tmdb_id?: number | null
   season?: number | null
   episode?: number | null
-  file_action?: 'overwrite' | 'skip' | 'rename' | null
+  file_action?: 'overwrite' | 'skip' | 'rename' | 'change_episode' | null
 }
 
 // 重试刮削请求

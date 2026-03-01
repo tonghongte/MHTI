@@ -317,7 +317,7 @@ async def resolve_conflict(
         return await _execute_scrape_and_update(history_service, record_id, scrape_request, user_log)
 
     elif request.conflict_type == ConflictType.FILE_CONFLICT:
-        if request.file_action not in ("overwrite", "skip", "rename"):
+        if request.file_action not in ("overwrite", "skip", "rename", "change_episode"):
             raise HTTPException(status_code=400, detail="无效的处理方式")
 
         if request.file_action == "skip":
@@ -330,18 +330,31 @@ async def resolve_conflict(
         if tmdb_id is None:
             raise HTTPException(status_code=400, detail="缺少 TMDB ID")
 
-        action_text = "覆盖" if request.file_action == "overwrite" else "重命名"
-        user_log = f"用户选择了{action_text}文件"
-
-        scrape_request = ScrapeByIdRequest(
-            file_path=record.folder_path,
-            tmdb_id=tmdb_id,
-            season=record.conflict_data.get("season", 1) if record.conflict_data else 1,
-            episode=record.conflict_data.get("episode", 1) if record.conflict_data else 1,
-            output_dir=output_dir,
-            metadata_dir=metadata_dir,
-            link_mode=link_mode,
-        )
+        if request.file_action == "change_episode":
+            if request.season is None or request.episode is None:
+                raise HTTPException(status_code=400, detail="请提供季/集号")
+            user_log = f"用户更改集数: S{request.season:02d}E{request.episode:02d}"
+            scrape_request = ScrapeByIdRequest(
+                file_path=record.folder_path,
+                tmdb_id=tmdb_id,
+                season=request.season,
+                episode=request.episode,
+                output_dir=output_dir,
+                metadata_dir=metadata_dir,
+                link_mode=link_mode,
+            )
+        else:
+            action_text = "覆盖" if request.file_action == "overwrite" else "重命名"
+            user_log = f"用户选择了{action_text}文件"
+            scrape_request = ScrapeByIdRequest(
+                file_path=record.folder_path,
+                tmdb_id=tmdb_id,
+                season=record.conflict_data.get("season", 1) if record.conflict_data else 1,
+                episode=record.conflict_data.get("episode", 1) if record.conflict_data else 1,
+                output_dir=output_dir,
+                metadata_dir=metadata_dir,
+                link_mode=link_mode,
+            )
         return await _execute_scrape_and_update(history_service, record_id, scrape_request, user_log)
 
     elif request.conflict_type in (ConflictType.NO_MATCH, ConflictType.SEARCH_FAILED, ConflictType.API_FAILED):
