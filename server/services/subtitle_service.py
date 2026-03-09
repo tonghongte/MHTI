@@ -347,4 +347,11 @@ class SubtitleService:
                 sub_ep.group(2).zfill(2),
             )
 
+        # Product-code fallback: subtitle base (e.g. "GLOD-0267") is contained in
+        # video name (e.g. "[GLOD-0267] OVA サキュバス..."), or vice versa.
+        vl = video_name.lower()
+        sl = subtitle_base.lower()
+        if sl and (sl in vl or vl in sl):
+            return True
+
         return False
