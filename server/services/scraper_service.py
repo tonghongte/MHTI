@@ -249,7 +249,21 @@ class ScraperService(ScraperConfigMixin, ScraperMetadataMixin, ScraperMediaMixin
             )
 
         # 字幕文件走专用轻量流程（不刮削 NFO/图片，仅重命名+移动）
+        # 仅在同级目录没有视频文件时才独立处理字幕
         if path.suffix.lower() in SUBTITLE_EXTENSIONS:
+            sibling_videos = [
+                p for p in path.parent.iterdir()
+                if p.is_file() and p.suffix.lower() in _VIDEO_EXTENSIONS
+            ]
+            if sibling_videos:
+                return ScrapeResult(
+                    file_path=file_path,
+                    status=ScrapeStatus.NO_MATCH,
+                    message=(
+                        f"同级目录存在视频文件，字幕将随视频一起处理。"
+                        f"如需单独处理请先移走视频文件。"
+                    ),
+                )
             return await self._scrape_subtitle_file(request)
 
         # Step 1: Parse filename
@@ -606,6 +620,9 @@ class ScraperService(ScraperConfigMixin, ScraperMetadataMixin, ScraperMediaMixin
             season_folder = dest_file.parent
             series_folder = season_folder.parent
 
+            # 视频移动成功后立即处理关联字幕，避免后续图片下载超时导致字幕遗留
+            self._process_subtitles(file_path, str(dest_file), season=season_num, episode=episode_num)
+
             # 确定元数据输出目录（NFO、图片）
             if request.metadata_dir:
                 # 使用独立的元数据目录，保持相同的目录结构
@@ -676,9 +693,6 @@ class ScraperService(ScraperConfigMixin, ScraperMetadataMixin, ScraperMediaMixin
             else:
                 image_step.logs.append(ScrapeLogEntry(message="集封面图下载已跳过（配置禁用）"))
             await notify_log_update()
-
-            # 处理关联字幕文件
-            self._process_subtitles(file_path, str(dest_file), season=season_num, episode=episode_num)
 
         except Exception as e:
             move_step.logs.append(ScrapeLogEntry(message=f"文件{mode_name}失败: {str(e)}", level=LogLevel.ERROR))
@@ -865,6 +879,9 @@ class ScraperService(ScraperConfigMixin, ScraperMetadataMixin, ScraperMediaMixin
             season_folder = dest_file.parent
             series_folder = season_folder.parent
 
+            # 视频移动成功后立即处理关联字幕，避免后续图片下载超时导致字幕遗留
+            self._process_subtitles(file_path, str(dest_file), season=request.season, episode=request.episode)
+
             # 确定元数据输出目录（NFO、图片）
             if request.metadata_dir:
                 # 使用独立的元数据目录，保持相同的目录结构
@@ -935,9 +952,6 @@ class ScraperService(ScraperConfigMixin, ScraperMetadataMixin, ScraperMediaMixin
             else:
                 image_step.logs.append(ScrapeLogEntry(message="集封面图下载已跳过（配置禁用）"))
             await notify_log_update()
-
-            # 处理关联字幕文件
-            self._process_subtitles(file_path, str(dest_file), season=request.season, episode=request.episode)
 
         except Exception as e:
             move_step.logs.append(ScrapeLogEntry(message=f"文件{mode_name}失败: {str(e)}", level=LogLevel.ERROR))
